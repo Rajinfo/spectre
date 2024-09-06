@@ -1,0 +1,134 @@
+@echo off
+setlocal enabledelayedexpansion
+ 
+rem Set the base directory (replace with your desired directory)
+set "baseDir=D:\program\test\"
+set "output_file_type=%baseDir%output_file.csv"
+ 
+if exist "!output_file_type!" del "!output_file_type!"
+rem Navigate to the base directory
+rem Navigate to the base directory
+cd /d "%baseDir%"
+ 
+rem Create the CSV header with the required columns
+echo Repo, FrontEnd/Backend, Type, UI/Java, Total Files, java, properties, xml, wsdl, ts, tsx, html, css, scss, json, sql, prc, js >> "%output_file_type%"
+ 
+echo %output_file_type%
+ 
+rem Loop through each folder in the base directory
+for /d %%D in (*) do (
+    rem Ignore directories with . in their name
+    if not "%%~nxD"==".git" (
+        rem Navigate to each directory
+        pushd "%%D"
+        rem Call the function to find the project type and count files
+        call :findProjectType "%%D"
+        rem Return to the previous directory
+        popd
+    )
+)
+ 
+rem Function to determine the project type and count file extensions
+:findProjectType
+    set "project_path=%cd%"
+    rem Initialize counters for file types
+    set /a fileCount=0
+    set /a countJava=0
+    set /a countProperties=0
+    set /a countXml=0
+    set /a countWsdl=0
+    set /a countTs=0
+    set /a countTsx=0
+    set /a countHtml=0
+    set /a countCss=0
+    set /a countScss=0
+    set /a countJson=0
+    set /a countSql=0
+    set /a countprc=0
+	set /a countJs=0
+	set /a countMd=0
+    rem Initialize flags for the project type
+    set hasJava=0
+    set hasMD=0
+    set hasprc=0
+    set hasOtherFiles=0
+ 
+    rem Check for files in the folder and subfolders
+    for /r %%F in (*) do (
+        if /i "%%~xF"==".java" (
+            set /a countJava+=1
+            set hasJava=1
+        )
+        if /i "%%~xF"==".properties" set /a countProperties+=1
+        if /i "%%~xF"==".xml" set /a countXml+=1
+        if /i "%%~xF"==".wsdl" set /a countWsdl+=1
+        if /i "%%~xF"==".ts" set /a countTs+=1
+        if /i "%%~xF"==".tsx" set /a countTsx+=1
+        if /i "%%~xF"==".html" set /a countHtml+=1
+        if /i "%%~xF"==".css" set /a countCss+=1
+        if /i "%%~xF"==".scss" set /a countScss+=1
+        if /i "%%~xF"==".json" set /a countJson+=1
+        if /i "%%~xF"==".sql" set /a countSql+=1
+		if /i "%%~xF"==".js" set /a countJs+=1
+		if /i "%%~xF"==".md"  (
+			set /a countMd+=1
+			set hasMD=1
+        )
+        if /i "%%~xF"==".prc" (
+            set /a countprc+=1
+            set hasprc=1
+        )
+		if /i "%%~xF"==".PRC" (
+            set /a countprc+=1
+            set hasprc=1
+        )
+		if /i "%%~xF"==".fnc" (
+            set /a countprc+=1
+            set hasprc=1
+        )
+		if /i "%%~xF"==".vws" (
+            set /a countprc+=1
+            set hasprc=1
+        )
+        set /a fileCount+=1
+    )
+ 
+    rem Determine UI/Backend Type and classify the project
+    set "ui_backend=Backend"
+    if exist "angular.json" (
+        set "ui_backend=UI"
+    )
+ 
+    rem Determine the type of project based on the files
+    if exist "build.gradle" (
+        if !hasJava! equ 1 (
+            set "type=Gradle, Java"
+        ) else (
+            set "type=Gradle, Others"
+        )
+    ) else if exist "pom.xml" (
+        if !hasJava! equ 1 (
+            set "type=Maven, Java"
+        ) else (
+            set "type=Maven, Others"
+        )
+    ) else if exist "angular.json" (
+        set "type=Angular, UI"
+    ) else if !hasprc! equ 1 if !hasOtherFiles! equ 0 (
+        set "type=DBObject, DB"
+    ) else if !hasMD! equ 1 if !hasOtherFiles! equ 0 (
+        set "type=None, None"
+    ) else (
+        set "type=Others, Others"
+    )
+ 
+    rem Output the formatted data to the CSV file
+    echo %~1, !ui_backend!, !type!, !fileCount!, !countJava!, !countProperties!, !countXml!, !countWsdl!, !countTs!, !countTsx!, !countHtml!, !countCss!, !countScss!, !countJson!, !countSql!, !countprc!, !countJs! >> "%output_file_type%"
+ 
+    rem Return to the previous directory
+    popd
+    goto :eof
+ 
+ 
+endlocal
+pause
