@@ -1,0 +1,2 @@
+ if not "%%~nxF"=="." if not "%%~nxF"==".."
+        if /i not "%%~nxF:~0,1"=="." (
