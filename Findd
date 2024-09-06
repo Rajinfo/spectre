@@ -1,0 +1,10 @@
+for /f "tokens=*" %%g in ('findstr "com.raj" build.gradle') do (
+    REM Replace commas with colons in %%g
+    set "modified=%%g"
+    setlocal enabledelayedexpansion
+    set "modified=!modified:,=:!"
+    
+    REM Append the modified output to the file
+    echo %~2 , !project_path!, !modified! >> "%output_file%"
+    endlocal
+)
