@@ -29,6 +29,10 @@ def extract_objects_and_operations(file_path):
 
     with open(file_path, 'r', encoding='utf-8') as file:  # Use UTF-8 encoding
         for line in file:
+            # Skip lines that are comments (starting with --)
+            if line.strip().startswith('--'):
+                continue
+
             # Search for tables and operations
             for match in re.findall(table_pattern, line, re.IGNORECASE):
                 operation_keyword = match[0].lower()
