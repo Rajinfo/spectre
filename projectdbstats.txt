@@ -25,12 +25,15 @@ def extract_objects_and_operations(file_path):
     alter_pattern = r'ALTER\s+TABLE\s+([a-zA-Z0-9_]+)'  # Alter table
     delete_pattern = r'DELETE\s+FROM\s+([a-zA-Z0-9_]+)'  # Delete table
 
+    # Pattern to ignore <select>, <update>, <insert>, <delete> tags
+    ignore_tag_pattern = r'<\s*(select|update|insert|delete)\s+id='
+
     objects_and_operations = []
 
     with open(file_path, 'r', encoding='utf-8') as file:  # Use UTF-8 encoding
         for line in file:
-            # Skip lines that are comments (starting with --)
-            if line.strip().startswith('--'):
+            # Skip lines that are comments (starting with --) or have <select>, <update>, <insert>, <delete> tags with 'id' attributes
+            if line.strip().startswith('--') or re.search(ignore_tag_pattern, line, re.IGNORECASE):
                 continue
 
             # Search for tables and operations
