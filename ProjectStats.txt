@@ -5,8 +5,11 @@ input_csv = 'file.csv'  # The input CSV file containing URLs
 output_file = 'output_file_Stats.csv'
 base_dir='D:/program/test'
 
-# File extensions to count
-file_extensions = ['.java', '.properties', '.xml', '.wsdl', '.ts', '.tsx', '.html', '.css', '.scss', '.json', '.sql', '.srv', '.src', '.SRC', '.FNC', '.vws']
+# File extensions to count, including the additional ones for SQL and DB
+file_extensions = ['.java', '.properties', '.xml', '.wsdl', '.ts', '.tsx', '.html', '.css', '.scss', '.json', '.sql', '.srv','.src', '.SRC', '.fnc', '.FNC', '.prd', '.PRD', '.few', '.FEW', '.rose', '.vws']
+
+# Extensions that will be considered SQL
+sql_extensions = ['.fnc', '.FNC', '.prd', '.PRD', '.few', '.FEW', '.rose']
 
 def is_hidden_or_system(path):
     """Check if a directory or file is hidden (starts with a .)."""
@@ -46,7 +49,7 @@ def determine_project_type(root):
             return 'Angular, UI'
         elif all(file.endswith('.md') for _, _, files in os.walk(root) for file in files):
             return 'None, None'
-        elif any(file.lower().endswith(('.srv', '.src', '.fnc', '.vws')) for _, _, files in os.walk(root) for file in files):
+        elif any(file.lower().endswith(('.srv', '.src', '.fnc', '.prd', '.few', '.rose', '.vws')) for _, _, files in os.walk(root) for file in files):
             return 'DB, DB'
         else:
             return 'Others, Others'
@@ -81,6 +84,9 @@ def main():
             if os.path.exists(root_dir):
                 file_count, extension_counts, project_type = process_directory(root_dir)
                 
+                # Calculate SQL count by summing up sql_extensions
+                sql_count = sum(extension_counts.get(ext, 0) for ext in sql_extensions)
+
                 # UI/Backend determination
                 ui_backend = "UI" if "Angular" in project_type else "Backend"
                 
@@ -100,7 +106,7 @@ def main():
                     extension_counts.get('.css', 0),
                     extension_counts.get('.scss', 0),
                     extension_counts.get('.json', 0),
-                    extension_counts.get('.sql', 0),
+                    sql_count,
                     extension_counts.get('.srv', 0)
                 ])
             else:
