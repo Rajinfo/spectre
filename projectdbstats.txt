@@ -1,0 +1,104 @@
+import os
+import re
+import csv
+
+def is_mybatis_or_ibatis(file_path):
+    """
+    Check if the XML file specifies MyBatis or iBATIS DTD.
+    """
+    with open(file_path, 'r', encoding='utf-8') as file:  # Use UTF-8 encoding
+        content = file.read(3300)  # Read the first 300 characters to check the DTD
+        return ('<!DOCTYPE mapper' in content or '<!DOCTYPE sqlMap' in content)
+
+def extract_objects_and_operations(file_path):
+    """
+    Extract table names, procedures, views, triggers, and operations from the MyBatis/iBATIS mapper or SQL file.
+    """
+    # Regex patterns for objects and operations
+    table_pattern = r'(FROM|JOIN|INTO|UPDATE|DELETE\s+FROM)\s+([a-zA-Z0-9_]+)(?:\s+(?:AS\s+)?([a-zA-Z0-9_]+))?'  # Table operations
+    procedure_pattern = r'CALL\s+([a-zA-Z0-9_]+)\s*\('  # Stored procedure
+    view_pattern = r'CREATE\s+VIEW\s+([a-zA-Z0-9_]+)'  # View
+    trigger_pattern = r'CREATE\s+TRIGGER\s+([a-zA-Z0-9_]+)'  # Trigger
+    create_pattern = r'CREATE\s+TABLE\s+([a-zA-Z0-9_]+)'  # Create table
+    alter_pattern = r'ALTER\s+TABLE\s+([a-zA-Z0-9_]+)'  # Alter table
+    delete_pattern = r'DELETE\s+FROM\s+([a-zA-Z0-9_]+)'  # Delete table
+
+    objects_and_operations = []
+
+    with open(file_path, 'r', encoding='utf-8') as file:  # Use UTF-8 encoding
+        for line in file:
+            # Search for tables and operations
+            for match in re.findall(table_pattern, line, re.IGNORECASE):
+                operation_keyword = match[0].lower()
+                table_name = match[1]
+
+                # Map SQL keywords to appropriate operation types
+                if operation_keyword in ('from', 'join'):
+                    operation_type = 'select'
+                elif operation_keyword == 'into':
+                    operation_type = 'insert'
+                elif operation_keyword == 'update':
+                    operation_type = 'update'
+                elif operation_keyword == 'delete from':
+                    operation_type = 'delete'
+
+                objects_and_operations.append((table_name, 'Table', operation_type))
+
+            # Search for create, alter, delete operations specifically
+            for match in re.findall(create_pattern, line, re.IGNORECASE):
+                objects_and_operations.append((match, 'Table', 'create'))
+            for match in re.findall(alter_pattern, line, re.IGNORECASE):
+                objects_and_operations.append((match, 'Table', 'alter'))
+            for match in re.findall(delete_pattern, line, re.IGNORECASE):
+                objects_and_operations.append((match, 'Table', 'delete'))
+
+            # Search for procedures, views, and triggers
+            for match in re.findall(procedure_pattern, line, re.IGNORECASE):
+                objects_and_operations.append((match, 'PLSQL', 'call'))
+            for match in re.findall(view_pattern, line, re.IGNORECASE):
+                objects_and_operations.append((match, 'View', 'create'))
+            for match in re.findall(trigger_pattern, line, re.IGNORECASE):
+                objects_and_operations.append((match, 'Trigger', 'create'))
+
+    return objects_and_operations
+
+def process_folders_from_csv(csv_file, output_csv):
+    """
+    Process folders listed in the CSV, find MyBatis/iBATIS mapper and SQL files,
+    extract table names, procedures, views, triggers, and operations, and output the results to another CSV.
+    """
+    with open(csv_file, 'r', encoding='utf-8') as file:  # Open CSV in UTF-8
+        reader = csv.reader(file)
+        folder_names = [row[0] for row in reader]
+
+    # Prepare to write the results
+    with open(output_csv, 'w', newline='', encoding='utf-8') as csvfile:  # Write CSV in UTF-8
+        writer = csv.writer(csvfile)
+        writer.writerow(['FolderName', 'FolderPath', 'FilePath', 'FileName', 'ObjectName', 'ObjectType', 'OperationType'])
+
+        for folder in folder_names:
+            print("folder names extracted is", folder)
+            # Search for MyBatis/iBATIS mapper and SQL files in the folder and subfolders
+            for root, _, files in os.walk(folder):
+                for file_name in files:
+                    if file_name.endswith(('.xml', '.sql')):  # Check for both .xml and .sql
+                        file_path = os.path.join(root, file_name)
+                        objects_and_operations = []
+
+                        # Check if the XML is a MyBatis or iBATIS mapper
+                        if file_name.endswith('.xml') and is_mybatis_or_ibatis(file_path):
+                            objects_and_operations = extract_objects_and_operations(file_path)
+                            print('Table names extracted from xml file for %s is %s', file_path, objects_and_operations)
+                        elif file_name.endswith('.sql'):  # Process SQL files directly
+                            objects_and_operations = extract_objects_and_operations(file_path)
+                            print('Table names extracted from sql file for %s is %s', file_path, objects_and_operations)
+                        # Write results to CSV only if objects are found
+                        if objects_and_operations:
+                            for object_name, object_type, operation_type in objects_and_operations:
+                                writer.writerow([folder, root, file_path, file_name, object_name, object_type, operation_type])
+# Example usage
+csv_input = 'D:/program/test/file-db.csv'  # Replace with your CSV file containing folder names
+csv_output = 'D:/program/test/out-reponsedb.csv'  # Output CSV file for folder and table names
+process_folders_from_csv(csv_input, csv_output)
+
+print("Table names extracted and saved to", csv_output)
