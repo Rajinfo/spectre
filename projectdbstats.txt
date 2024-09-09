@@ -16,9 +16,11 @@ def extract_objects_and_operations(file_path):
     """
     # Regex patterns for objects and operations
     table_pattern = r'(FROM|JOIN|INTO|UPDATE|DELETE\s+FROM)\s+([a-zA-Z0-9_]+)(?:\s+(?:AS\s+)?([a-zA-Z0-9_]+))?'  # Table operations
-    procedure_pattern = r'CALL\s+([a-zA-Z0-9_]+)\s*\('  # Stored procedure
-    view_pattern = r'CREATE\s+VIEW\s+([a-zA-Z0-9_]+)'  # View
-    trigger_pattern = r'CREATE\s+TRIGGER\s+([a-zA-Z0-9_]+)'  # Trigger
+    procedure_pattern = r'(CALL|CREATE\s+OR\s+REPLACE\s+PROCEDURE)\s+([a-zA-Z0-9_]+)\s*\('  # Stored procedure
+    function_pattern = r'CREATE\s+OR\s+REPLACE\s+FUNCTION\s+([a-zA-Z0-9_]+)\s*\('  # Stored function
+    view_pattern = r'(CREATE\s+OR\s+REPLACE\s+VIEW|CREATE\s+VIEW)\s+([a-zA-Z0-9_]+)'  # View
+    materialized_view_pattern = r'CREATE\s+MATERIALIZED\s+VIEW\s+([a-zA-Z0-9_]+)'  # Materialized View
+    trigger_pattern = r'CREATE\s+(OR\s+REPLACE\s+)?TRIGGER\s+([a-zA-Z0-9_]+)'  # Trigger
     create_pattern = r'CREATE\s+TABLE\s+([a-zA-Z0-9_]+)'  # Create table
     alter_pattern = r'ALTER\s+TABLE\s+([a-zA-Z0-9_]+)'  # Alter table
     delete_pattern = r'DELETE\s+FROM\s+([a-zA-Z0-9_]+)'  # Delete table
@@ -52,13 +54,17 @@ def extract_objects_and_operations(file_path):
             for match in re.findall(delete_pattern, line, re.IGNORECASE):
                 objects_and_operations.append((match, 'Table', 'delete'))
 
-            # Search for procedures, views, and triggers
+            # Search for procedures, functions, views, materialized views, and triggers
             for match in re.findall(procedure_pattern, line, re.IGNORECASE):
-                objects_and_operations.append((match, 'PLSQL', 'call'))
+                objects_and_operations.append((match[1], 'PLSQL', 'create or replace procedure'))
+            for match in re.findall(function_pattern, line, re.IGNORECASE):
+                objects_and_operations.append((match, 'PLSQL', 'create or replace function'))
             for match in re.findall(view_pattern, line, re.IGNORECASE):
-                objects_and_operations.append((match, 'View', 'create'))
+                objects_and_operations.append((match[1], 'View', 'create or replace view'))
+            for match in re.findall(materialized_view_pattern, line, re.IGNORECASE):
+                objects_and_operations.append((match, 'MaterializedView', 'create'))
             for match in re.findall(trigger_pattern, line, re.IGNORECASE):
-                objects_and_operations.append((match, 'Trigger', 'create'))
+                objects_and_operations.append((match[1], 'Trigger', 'create or replace' if match[0] else 'create'))
 
     return objects_and_operations
 
