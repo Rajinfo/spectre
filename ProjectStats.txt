@@ -1,0 +1,110 @@
+import os
+import csv
+
+input_csv = 'file.csv'  # The input CSV file containing URLs
+output_file = 'output_file_Stats.csv'
+base_dir='D:/program/test'
+
+# File extensions to count
+file_extensions = ['.java', '.properties', '.xml', '.wsdl', '.ts', '.tsx', '.html', '.css', '.scss', '.json', '.sql', '.srv', '.src', '.SRC', '.FNC', '.vws']
+
+def is_hidden_or_system(path):
+    """Check if a directory or file is hidden (starts with a .)."""
+    return any(part.startswith('.') for part in path.split(os.sep))
+
+def count_files_and_extensions(root):
+    """Count files and specific extensions in a given directory."""
+    file_count = 0
+    extension_counts = {ext: 0 for ext in file_extensions}
+    
+    try:
+        for dirpath, dirnames, filenames in os.walk(root):
+            # Exclude hidden directories and files
+            dirnames[:] = [d for d in dirnames if not is_hidden_or_system(os.path.join(dirpath, d))]
+            filenames = [f for f in filenames if not is_hidden_or_system(f)]
+
+            for file in filenames:
+                file_count += 1
+                ext = os.path.splitext(file)[1]
+                if ext in extension_counts:
+                    extension_counts[ext] += 1
+    except Exception as e:
+        print(f"Error in counting files in directory {root}: {e}")
+    
+    return file_count, extension_counts
+
+def determine_project_type(root):
+    """Determine the project type based on the presence of specific files."""
+    has_java = any(file.endswith('.java') for _, _, files in os.walk(root) for file in files)
+
+    try:
+        if os.path.exists(os.path.join(root, 'build.gradle')):
+            return 'Gradle, Java' if has_java else 'Gradle, Others'
+        elif os.path.exists(os.path.join(root, 'pom.xml')):
+            return 'Maven, Java' if has_java else 'Maven, Others'
+        elif os.path.exists(os.path.join(root, 'angular.json')):
+            return 'Angular, UI'
+        elif all(file.endswith('.md') for _, _, files in os.walk(root) for file in files):
+            return 'None, None'
+        elif any(file.lower().endswith(('.srv', '.src', '.fnc', '.vws')) for _, _, files in os.walk(root) for file in files):
+            return 'DB, DB'
+        else:
+            return 'Others, Others'
+    except Exception as e:
+        print(f"Error in determining project type for {root}: {e}")
+        return 'Others, Others'
+
+def process_directory(root):
+    """Process each directory to get the file count, extension counts, and project type."""
+    print(f"Processing directory: {root}")
+    file_count, extension_counts = count_files_and_extensions(root)
+    project_type = determine_project_type(root)
+
+    return file_count, extension_counts, project_type
+
+def main():
+    with open(input_csv, mode='r') as csv_input, open(output_file, mode='w', newline='', encoding='utf-8') as csv_output:
+        reader = csv.reader(csv_input)
+        writer = csv.writer(csv_output)
+        
+        # Write header
+        writer.writerow(['Repo', 'UI/Backend', 'Type', 'Total Files', 'java', 'properties', 'xml', 'wsdl', 'ts', 'tsx', 'html', 'css', 'scss', 'json', 'sql', 'srv'])
+        
+        # Process each line in the input CSV
+        for row in reader:
+            url, _ = row[0], row[1]
+            # Extract the folder name from the URL
+            folder_name = url.split('/')[-1]
+            root_dir = os.path.join(base_dir, folder_name)  # Adjust base directory as necessary
+            
+            # Process the folder to generate stats
+            if os.path.exists(root_dir):
+                file_count, extension_counts, project_type = process_directory(root_dir)
+                
+                # UI/Backend determination
+                ui_backend = "UI" if "Angular" in project_type else "Backend"
+                
+                # Write row data to CSV
+                writer.writerow([
+                    folder_name,
+                    ui_backend,
+                    project_type,
+                    file_count,
+                    extension_counts.get('.java', 0),
+                    extension_counts.get('.properties', 0),
+                    extension_counts.get('.xml', 0),
+                    extension_counts.get('.wsdl', 0),
+                    extension_counts.get('.ts', 0),
+                    extension_counts.get('.tsx', 0),
+                    extension_counts.get('.html', 0),
+                    extension_counts.get('.css', 0),
+                    extension_counts.get('.scss', 0),
+                    extension_counts.get('.json', 0),
+                    extension_counts.get('.sql', 0),
+                    extension_counts.get('.srv', 0)
+                ])
+            else:
+                print(f"Directory {root_dir} does not exist")
+
+if __name__ == '__main__':
+    main()
