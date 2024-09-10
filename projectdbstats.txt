@@ -12,10 +12,10 @@ def is_mybatis_or_ibatis(file_path):
 
 def extract_objects_and_operations(file_path):
     """
-    Extract table names, procedures, views, triggers, and operations from the MyBatis/iBATIS mapper or SQL file.
+    Extract table names, procedures, views, triggers, and operations from MyBatis/iBATIS mapper or SQL file.
     """
     # Regex patterns for objects and operations
-    table_pattern = r'(FROM|JOIN|INTO|UPDATE|DELETE\s+FROM)\s+([a-zA-Z0-9_]+)(?:\s+(?:AS\s+)?([a-zA-Z0-9_]+))?'  # Table operations
+    table_pattern = r'(FROM|JOIN|INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO)\s+([a-zA-Z0-9_.]+)(?:\s+(?:AS\s+)?([a-zA-Z0-9_]+))?'  # Table operations
     procedure_pattern = r'(CALL|CREATE\s+OR\s+REPLACE\s+PROCEDURE)\s+([a-zA-Z0-9_]+)\s*\('  # Stored procedure
     function_pattern = r'CREATE\s+OR\s+REPLACE\s+FUNCTION\s+([a-zA-Z0-9_]+)\s*\('  # Stored function
     view_pattern = r'(CREATE\s+OR\s+REPLACE\s+VIEW|CREATE\s+VIEW)\s+([a-zA-Z0-9_]+)'  # View
@@ -24,17 +24,33 @@ def extract_objects_and_operations(file_path):
     create_pattern = r'CREATE\s+TABLE\s+([a-zA-Z0-9_]+)'  # Create table
     alter_pattern = r'ALTER\s+TABLE\s+([a-zA-Z0-9_]+)'  # Alter table
     delete_pattern = r'DELETE\s+FROM\s+([a-zA-Z0-9_]+)'  # Delete table
+    merge_pattern = r'MERGE\s+INTO\s+([a-zA-Z0-9_.]+)'  # Merge statement
+    comment_block_pattern = r'<!--.*?-->'  # XML comment block
 
     # Pattern to ignore <select>, <update>, <insert>, <delete> tags
     ignore_tag_pattern = r'<\s*(select|update|insert|delete)\s+id='
 
     objects_and_operations = []
+    inside_comment_block = False
 
     with open(file_path, 'r', encoding='utf-8') as file:  # Use UTF-8 encoding
         for line in file:
-            # Skip lines that are comments (starting with --) or have <select>, <update>, <insert>, <delete> tags with 'id' attributes
-            if line.strip().startswith('--') or re.search(ignore_tag_pattern, line, re.IGNORECASE):
+            line = line.strip()
+            
+            # Handle block comments in XML
+            if line.startswith('<!--'):
+                inside_comment_block = True
+            if inside_comment_block:
+                if '-->' in line:
+                    inside_comment_block = False
                 continue
+
+            # Skip lines that are comments (starting with --) or have <select>, <update>, <insert>, <delete> tags with 'id' attributes
+            if line.startswith('--') or re.search(ignore_tag_pattern, line, re.IGNORECASE):
+                continue
+
+            # Remove inline XML comments like <!-- ... -->
+            line = re.sub(comment_block_pattern, '', line)
 
             # Search for tables and operations
             for match in re.findall(table_pattern, line, re.IGNORECASE):
@@ -50,6 +66,8 @@ def extract_objects_and_operations(file_path):
                     operation_type = 'update'
                 elif operation_keyword == 'delete from':
                     operation_type = 'delete'
+                elif operation_keyword == 'merge into':
+                    operation_type = 'merge'
 
                 objects_and_operations.append((table_name, 'Table', operation_type))
 
