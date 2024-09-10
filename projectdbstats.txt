@@ -20,12 +20,13 @@ def extract_objects_and_operations(file_path):
     function_pattern = r'CREATE\s+OR\s+REPLACE\s+FUNCTION\s+([a-zA-Z0-9_]+)\s*\('  # Stored function
     view_pattern = r'(CREATE\s+OR\s+REPLACE\s+VIEW|CREATE\s+VIEW)\s+([a-zA-Z0-9_]+)'  # View
     materialized_view_pattern = r'CREATE\s+MATERIALIZED\s+VIEW\s+([a-zA-Z0-9_]+)'  # Materialized View
-    trigger_pattern = r'CREATE\s+(OR\s+REPLACE\s+)?TRIGGER\s+([a-zA-Z0-9_]+)'  # Trigger
+    trigger_pattern = r'CREATE\s+(OR\s+REPLACE\s+)?TRIGGER\s+([a-zA-Z0-9_]+)\s+.*ON\s+([a-zA-Z0-9_]+)'  # Trigger and table
     create_pattern = r'CREATE\s+TABLE\s+([a-zA-Z0-9_]+)'  # Create table
     alter_pattern = r'ALTER\s+TABLE\s+([a-zA-Z0-9_]+)'  # Alter table
     delete_pattern = r'DELETE\s+FROM\s+([a-zA-Z0-9_]+)'  # Delete table
     merge_pattern = r'MERGE\s+INTO\s+([a-zA-Z0-9_.]+)'  # Merge statement
     comment_block_pattern = r'<!--.*?-->'  # XML comment block
+    select_count_pattern = r'SELECT\s+COUNT\(\*\)\s+INTO\s+\w+\s+FROM\s+([a-zA-Z0-9_]+)'  # SELECT COUNT INTO
 
     # Pattern to ignore <select>, <update>, <insert>, <delete> tags
     ignore_tag_pattern = r'<\s*(select|update|insert|delete)\s+id='
@@ -45,12 +46,16 @@ def extract_objects_and_operations(file_path):
                     inside_comment_block = False
                 continue
 
+            # Remove inline XML comments like <!-- ... -->
+            line = re.sub(comment_block_pattern, '', line)
+
+            # Ignore everything after '--' for SQL comments
+            if '--' in line:
+                line = line.split('--', 1)[0]
+
             # Skip lines that are comments (starting with --) or have <select>, <update>, <insert>, <delete> tags with 'id' attributes
             if line.startswith('--') or re.search(ignore_tag_pattern, line, re.IGNORECASE):
                 continue
-
-            # Remove inline XML comments like <!-- ... -->
-            line = re.sub(comment_block_pattern, '', line)
 
             # Search for tables and operations
             for match in re.findall(table_pattern, line, re.IGNORECASE):
@@ -89,7 +94,14 @@ def extract_objects_and_operations(file_path):
             for match in re.findall(materialized_view_pattern, line, re.IGNORECASE):
                 objects_and_operations.append((match, 'MaterializedView', 'create'))
             for match in re.findall(trigger_pattern, line, re.IGNORECASE):
-                objects_and_operations.append((match[1], 'Trigger', 'create or replace' if match[0] else 'create'))
+                trigger_name = match[1]
+                table_name = match[2]
+                objects_and_operations.append((trigger_name, 'Trigger', 'create'))
+                objects_and_operations.append((table_name, 'Table', 'trigger'))
+
+            # Handle SELECT COUNT INTO inside triggers, avoiding variable names like 'rowcnt'
+            for match in re.findall(select_count_pattern, line, re.IGNORECASE):
+                objects_and_operations.append((match, 'Table', 'select'))
 
     return objects_and_operations
 
