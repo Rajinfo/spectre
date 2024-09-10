@@ -62,7 +62,7 @@ def extract_objects_and_operations(file_path):
 
             # Multi-line trigger, procedure, function, view detection
             if multi_line_object:
-                if "ON" in line and "TRIGGER" in multi_line_object[0]:
+                if "ON" in line and "TRIGGER" in multi_line_object[0].lower():
                     trigger_table_match = re.search(r'ON\s+([a-zA-Z0-9_]+)', line)
                     if trigger_table_match:
                         trigger_table = trigger_table_match.group(1)
@@ -78,6 +78,31 @@ def extract_objects_and_operations(file_path):
             if multi_line_match:
                 multi_line_object = (multi_line_match.group(1).lower(), multi_line_match.group(2))
                 continue
+
+            # For CREATE OR REPLACE TRIGGER: prioritize checking for SELECT COUNT INTO before matching tables
+            if re.search(r'CREATE\s+OR\s+REPLACE\s+TRIGGER', line, re.IGNORECASE):
+                if re.search(select_count_pattern, line, re.IGNORECASE):
+                    for match in re.findall(select_count_pattern, line, re.IGNORECASE):
+                        objects_and_operations.append((match, 'Table', 'select'))
+                else:
+                    # Proceed with table pattern matching if SELECT COUNT INTO is not found
+                    for match in re.findall(table_pattern, line, re.IGNORECASE):
+                        operation_keyword = match[0].lower()
+                        table_name = match[1]
+
+                        # Map SQL keywords to appropriate operation types
+                        if operation_keyword in ('from', 'join'):
+                            operation_type = 'select'
+                        elif operation_keyword == 'into':
+                            operation_type = 'insert'
+                        elif operation_keyword == 'update':
+                            operation_type = 'update'
+                        elif operation_keyword == 'delete from':
+                            operation_type = 'delete'
+                        elif operation_keyword == 'merge into':
+                            operation_type = 'merge'
+
+                        objects_and_operations.append((table_name, 'Table', operation_type))
 
             # Search for tables and operations
             for match in re.findall(table_pattern, line, re.IGNORECASE):
@@ -120,11 +145,6 @@ def extract_objects_and_operations(file_path):
                 table_name = match[2]
                 objects_and_operations.append((trigger_name, 'Trigger', 'create'))
                 objects_and_operations.append((table_name, 'Table', 'trigger'))
-
-            # Handle SELECT COUNT INTO inside triggers, avoiding variable names like 'rowcnt'
-            if not re.search(select_count_pattern, line, re.IGNORECASE):
-                for match in re.findall(select_count_pattern, line, re.IGNORECASE):
-                    objects_and_operations.append((match, 'Table', 'select'))
 
     return objects_and_operations
 
