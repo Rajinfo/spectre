@@ -16,28 +16,31 @@ def extract_objects_and_operations(file_path):
     """
     # Regex patterns for objects and operations
     table_pattern = r'(FROM|JOIN|INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO)\s+([a-zA-Z0-9_.]+)(?:\s+(?:AS\s+)?([a-zA-Z0-9_]+))?'  # Table operations
-    procedure_pattern = r'(CALL|CREATE\s+OR\s+REPLACE\s+PROCEDURE)\s+([a-zA-Z0-9_]+)\s*\('  # Stored procedure
+    procedure_pattern = r'CREATE\s+OR\s+REPLACE\s+PROCEDURE\s+([a-zA-Z0-9_]+)\s*\('  # Stored procedure
     function_pattern = r'CREATE\s+OR\s+REPLACE\s+FUNCTION\s+([a-zA-Z0-9_]+)\s*\('  # Stored function
-    view_pattern = r'(CREATE\s+OR\s+REPLACE\s+VIEW|CREATE\s+VIEW)\s+([a-zA-Z0-9_]+)'  # View
+    view_pattern = r'CREATE\s+OR\s+REPLACE\s+VIEW\s+([a-zA-Z0-9_]+)'  # View
     materialized_view_pattern = r'CREATE\s+MATERIALIZED\s+VIEW\s+([a-zA-Z0-9_]+)'  # Materialized View
-    trigger_pattern = r'CREATE\s+(OR\s+REPLACE\s+)?TRIGGER\s+([a-zA-Z0-9_]+)\s+.*ON\s+([a-zA-Z0-9_]+)'  # Trigger and table
+    trigger_pattern = r'CREATE\s+(OR\s+REPLACE\s+)?TRIGGER\s+([a-zA-Z0-9_]+).*ON\s+([a-zA-Z0-9_]+)'  # Trigger and table
     create_pattern = r'CREATE\s+TABLE\s+([a-zA-Z0-9_]+)'  # Create table
     alter_pattern = r'ALTER\s+TABLE\s+([a-zA-Z0-9_]+)'  # Alter table
     delete_pattern = r'DELETE\s+FROM\s+([a-zA-Z0-9_]+)'  # Delete table
     merge_pattern = r'MERGE\s+INTO\s+([a-zA-Z0-9_.]+)'  # Merge statement
     comment_block_pattern = r'<!--.*?-->'  # XML comment block
     select_count_pattern = r'SELECT\s+COUNT\(\*\)\s+INTO\s+\w+\s+FROM\s+([a-zA-Z0-9_]+)'  # SELECT COUNT INTO
+    multi_line_object_pattern = r'CREATE\s+OR\s+REPLACE\s+(TRIGGER|PROCEDURE|FUNCTION|VIEW|MATERIALIZED\s+VIEW)\s+([a-zA-Z0-9_]+)'  # Multi-line triggers, views, procedures
 
     # Pattern to ignore <select>, <update>, <insert>, <delete> tags
     ignore_tag_pattern = r'<\s*(select|update|insert|delete)\s+id='
 
     objects_and_operations = []
     inside_comment_block = False
+    multi_line_object = None
+    trigger_table = None
 
     with open(file_path, 'r', encoding='utf-8') as file:  # Use UTF-8 encoding
         for line in file:
             line = line.strip()
-            
+
             # Handle block comments in XML
             if line.startswith('<!--'):
                 inside_comment_block = True
@@ -55,6 +58,25 @@ def extract_objects_and_operations(file_path):
 
             # Skip lines that are comments (starting with --) or have <select>, <update>, <insert>, <delete> tags with 'id' attributes
             if line.startswith('--') or re.search(ignore_tag_pattern, line, re.IGNORECASE):
+                continue
+
+            # Multi-line trigger, procedure, function, view detection
+            if multi_line_object:
+                if "ON" in line and "TRIGGER" in multi_line_object[0]:
+                    trigger_table_match = re.search(r'ON\s+([a-zA-Z0-9_]+)', line)
+                    if trigger_table_match:
+                        trigger_table = trigger_table_match.group(1)
+                        objects_and_operations.append((multi_line_object[1], 'Trigger', 'create'))
+                        objects_and_operations.append((trigger_table, 'Table', 'trigger'))
+                    multi_line_object = None
+                elif ";" in line:
+                    multi_line_object = None  # End of multi-line object declaration
+                continue
+
+            # Detect start of multi-line triggers, procedures, functions, views
+            multi_line_match = re.search(multi_line_object_pattern, line, re.IGNORECASE)
+            if multi_line_match:
+                multi_line_object = (multi_line_match.group(1).lower(), multi_line_match.group(2))
                 continue
 
             # Search for tables and operations
@@ -100,8 +122,9 @@ def extract_objects_and_operations(file_path):
                 objects_and_operations.append((table_name, 'Table', 'trigger'))
 
             # Handle SELECT COUNT INTO inside triggers, avoiding variable names like 'rowcnt'
-            for match in re.findall(select_count_pattern, line, re.IGNORECASE):
-                objects_and_operations.append((match, 'Table', 'select'))
+            if not re.search(select_count_pattern, line, re.IGNORECASE):
+                for match in re.findall(select_count_pattern, line, re.IGNORECASE):
+                    objects_and_operations.append((match, 'Table', 'select'))
 
     return objects_and_operations
 
