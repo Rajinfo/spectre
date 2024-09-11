@@ -2,107 +2,128 @@ import os
 import re
 import csv
 
+def read_in_chunks(file_object, chunk_size=1024):
+    """
+    Lazy function (generator) to read a file piece by piece.
+    Default chunk size: 1024 characters.
+    """
+    while True:
+        data = file_object.read(chunk_size)
+        if not data:
+            break
+        yield data
+
 def is_mybatis_or_ibatis(file_path):
     """
     Check if the XML file specifies MyBatis or iBATIS DTD.
     """
-    with open(file_path, 'r', encoding='utf-8') as file:  # Use UTF-8 encoding
-        content = file.read(3300)  # Read the first 300 characters to check the DTD
+    with open(file_path, 'r', encoding='utf-8') as file:
+        # Read first 3300 characters (adjust as needed)
+        content = file.read(3300)
         return ('<!DOCTYPE mapper' in content or '<!DOCTYPE sqlMap' in content)
 
 def extract_objects_and_operations(file_path, is_xml=False):
     """
     Extract table names, procedures, views, triggers, and operations from MyBatis/iBATIS mapper or SQL file.
-    If the file is an XML, additional processing is done to handle XML-specific conditions.
+    Handles XML-specific processing and SQL-specific processing.
     """
     # Regex patterns for objects and operations
-    table_pattern = r'(FROM|JOIN|INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO)\s+([a-zA-Z0-9_.]+)(?:\s+(?:AS\s+)?([a-zA-Z0-9_]+))?'  # Table operations
-    procedure_pattern = r'CREATE\s+OR\s+REPLACE\s+PROCEDURE\s+([a-zA-Z0-9_]+)\s*\('  # Stored procedure
-    function_pattern = r'CREATE\s+OR\s+REPLACE\s+FUNCTION\s+([a-zA-Z0-9_]+)\s*\('  # Stored function
-    view_pattern = r'CREATE\s+OR\s+REPLACE\s+VIEW\s+([a-zA-Z0-9_]+)'  # View
-    materialized_view_pattern = r'CREATE\s+MATERIALIZED\s+VIEW\s+([a-zA-Z0-9_]+)'  # Materialized View
-    create_pattern = r'CREATE\s+TABLE\s+([a-zA-Z0-9_]+)'  # Create table
-    alter_pattern = r'ALTER\s+TABLE\s+([a-zA-Z0-9_]+)'  # Alter table
-    delete_pattern = r'DELETE\s+FROM\s+([a-zA-Z0-9_]+)'  # Delete table
-    merge_pattern = r'MERGE\s+INTO\s+([a-zA-Z0-9_.]+)'  # Merge statement
-    select_count_pattern = r'SELECT\s+COUNT\(\*\)\s+INTO\s+\w+\s+FROM\s+([a-zA-Z0-9_]+)'  # SELECT COUNT INTO
-    trigger_pattern = r'CREATE\s+(OR\s+REPLACE\s+)?TRIGGER\s+([a-zA-Z0-9_]+)\s+.*?\s+ON\s+([a-zA-Z0-9_]+)'  # Trigger pattern
+    table_pattern = r'(FROM|JOIN|INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO)\s+([a-zA-Z0-9_.]+)(?:\s+(?:AS\s+)?([a-zA-Z0-9_]+))?'
+    procedure_pattern = r'CREATE\s+OR\s+REPLACE\s+PROCEDURE\s+([a-zA-Z0-9_]+)\s*\('
+    function_pattern = r'CREATE\s+OR\s+REPLACE\s+FUNCTION\s+([a-zA-Z0-9_]+)\s*\('
+    view_pattern = r'CREATE\s+OR\s+REPLACE\s+VIEW\s+([a-zA-Z0-9_]+)'
+    materialized_view_pattern = r'CREATE\s+MATERIALIZED\s+VIEW\s+([a-zA-Z0-9_]+)'
+    create_pattern = r'CREATE\s+TABLE\s+([a-zA-Z0-9_]+)'
+    alter_pattern = r'ALTER\s+TABLE\s+([a-zA-Z0-9_]+)'
+    delete_pattern = r'DELETE\s+FROM\s+([a-zA-Z0-9_]+)'
+    merge_pattern = r'MERGE\s+INTO\s+([a-zA-Z0-9_.]+)'
+    trigger_pattern = r'CREATE\s+(OR\s+REPLACE\s+)?TRIGGER\s+([a-zA-Z0-9_]+)\s+.*?\s+ON\s+([a-zA-Z0-9_]+)'
 
     objects_and_operations = []
 
-    with open(file_path, 'r', encoding='utf-8') as file:
-        content = file.readlines() if is_xml else file.read()
+    # Detect file type
+    is_xml = file_path.endswith('.xml')
+    content = []
 
+    with open(file_path, 'r', encoding='utf-8') as file:
         if is_xml:
             # XML-specific processing
             inside_comment_block = False
-            for line in content:
-                line = line.strip()
+            for chunk in read_in_chunks(file):
+                chunk_lines = chunk.splitlines()
+                for line in chunk_lines:
+                    line = line.strip()
 
-                # Handle block comments in XML
-                if line.startswith('<!--'):
-                    inside_comment_block = True
-                if inside_comment_block:
-                    if '-->' in line:
-                        inside_comment_block = False
-                    continue
+                    # Handle block comments in XML
+                    if line.startswith('<!--'):
+                        inside_comment_block = True
+                    if inside_comment_block:
+                        if '-->' in line:
+                            inside_comment_block = False
+                        continue
 
-                # Remove inline XML comments like <!-- ... -->
-                line = re.sub(r'<!--.*?-->', '', line)
+                    # Remove inline XML comments like <!-- ... -->
+                    line = re.sub(r'<!--.*?-->', '', line)
 
-                # Skip lines with <select>, <update>, <insert>, <delete> tags with 'id' attributes
-                if re.search(r'<(select|update|insert|delete)\s+[^>]*id\s*=', line, re.IGNORECASE):
-                    continue
+                    # Skip lines with <select>, <update>, <insert>, <delete> tags with 'id' attributes
+                    if re.search(r'<(select|update|insert|delete)\s+[^>]*id\s*=', line, re.IGNORECASE):
+                        continue
 
-                content = '\n'.join(content)  # Rejoin lines for regex search in case needed later
+                    content.append(line)
         else:
             # SQL file processing: remove inline SQL comments like -- and /* ... */
-            content = re.sub(r'--.*', '', content)
-            content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+            for chunk in read_in_chunks(file):
+                chunk = re.sub(r'--.*', '', chunk)
+                chunk = re.sub(r'/\*.*?\*/', '', chunk, flags=re.DOTALL)
+                content.append(chunk)
 
-        # Trigger detection
-        for match in re.findall(trigger_pattern, content, re.IGNORECASE | re.DOTALL):
-            trigger_name = match[1]
-            table_name = match[2]
-            objects_and_operations.append((trigger_name, 'Trigger', 'create'))
-            objects_and_operations.append((table_name, 'Table', 'trigger'))
+    # Rejoin the content for regex processing
+    content = '\n'.join(content)
 
-        # Search for table-related operations
-        for match in re.findall(table_pattern, content, re.IGNORECASE):
-            operation_keyword = match[0].lower()
-            table_name = match[1]
-            operation_type = 'default'
-            # Map SQL keywords to appropriate operation types
-            if operation_keyword in ('from', 'join'):
-                operation_type = 'select'
-            elif operation_keyword == 'into':
-                operation_type = 'insert'
-            elif operation_keyword == 'update':
-                operation_type = 'update'
-            elif operation_keyword == 'delete from':
-                operation_type = 'delete'
-            elif operation_keyword == 'merge into':
-                operation_type = 'merge'
+    # Search for triggers
+    for match in re.findall(trigger_pattern, content, re.IGNORECASE | re.DOTALL):
+        trigger_name = match[1]
+        table_name = match[2]
+        objects_and_operations.append((trigger_name, 'Trigger', 'create'))
+        objects_and_operations.append((table_name, 'Table', 'trigger'))
 
-            objects_and_operations.append((table_name, 'Table', operation_type))
+    # Search for table-related operations
+    for match in re.findall(table_pattern, content, re.IGNORECASE):
+        operation_keyword = match[0].lower()
+        table_name = match[1]
 
-        # Search for create, alter, delete operations
-        for match in re.findall(create_pattern, content, re.IGNORECASE):
-            objects_and_operations.append((match, 'Table', 'create'))
-        for match in re.findall(alter_pattern, content, re.IGNORECASE):
-            objects_and_operations.append((match, 'Table', 'alter'))
-        for match in re.findall(delete_pattern, content, re.IGNORECASE):
-            objects_and_operations.append((match, 'Table', 'delete'))
+        # Map SQL keywords to appropriate operation types
+        operation_type = 'unknown'
+        if operation_keyword in ('from', 'join'):
+            operation_type = 'select'
+        elif operation_keyword == 'into':
+            operation_type = 'insert'
+        elif operation_keyword == 'update':
+            operation_type = 'update'
+        elif operation_keyword == 'delete from':
+            operation_type = 'delete'
+        elif operation_keyword == 'merge into':
+            operation_type = 'merge'
 
-        # Search for procedures, functions, views, and materialized views
-        for match in re.findall(procedure_pattern, content, re.IGNORECASE):
-            objects_and_operations.append((match, 'PLSQL', 'create or replace procedure'))
-        for match in re.findall(function_pattern, content, re.IGNORECASE):
-            objects_and_operations.append((match, 'PLSQL', 'create or replace function'))
-        for match in re.findall(view_pattern, content, re.IGNORECASE):
-            objects_and_operations.append((match, 'View', 'create or replace view'))
-        for match in re.findall(materialized_view_pattern, content, re.IGNORECASE):
-            objects_and_operations.append((match, 'MaterializedView', 'create'))
+        objects_and_operations.append((table_name, 'Table', operation_type))
+
+    # Search for create, alter, delete operations
+    for match in re.findall(create_pattern, content, re.IGNORECASE):
+        objects_and_operations.append((match, 'Table', 'create'))
+    for match in re.findall(alter_pattern, content, re.IGNORECASE):
+        objects_and_operations.append((match, 'Table', 'alter'))
+    for match in re.findall(delete_pattern, content, re.IGNORECASE):
+        objects_and_operations.append((match, 'Table', 'delete'))
+
+    # Search for procedures, functions, views, and materialized views
+    for match in re.findall(procedure_pattern, content, re.IGNORECASE):
+        objects_and_operations.append((match, 'PLSQL', 'create or replace procedure'))
+    for match in re.findall(function_pattern, content, re.IGNORECASE):
+        objects_and_operations.append((match, 'PLSQL', 'create or replace function'))
+    for match in re.findall(view_pattern, content, re.IGNORECASE):
+        objects_and_operations.append((match, 'View', 'create or replace view'))
+    for match in re.findall(materialized_view_pattern, content, re.IGNORECASE):
+        objects_and_operations.append((match, 'MaterializedView', 'create'))
 
     return objects_and_operations
 
@@ -111,12 +132,12 @@ def process_folders_from_csv(csv_file, output_csv):
     Process folders listed in the CSV, find MyBatis/iBATIS mapper and SQL files,
     extract table names, procedures, views, triggers, and operations, and output the results to another CSV.
     """
-    with open(csv_file, 'r', encoding='utf-8') as file:  # Open CSV in UTF-8
+    with open(csv_file, 'r', encoding='utf-8') as file:
         reader = csv.reader(file)
         folder_names = [row[0] for row in reader]
 
     # Prepare to write the results
-    with open(output_csv, 'w', newline='', encoding='utf-8') as csvfile:  # Write CSV in UTF-8
+    with open(output_csv, 'w', newline='', encoding='utf-8') as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(['FolderName', 'FolderPath', 'FilePath', 'FileName', 'ObjectName', 'ObjectType', 'OperationType'])
 
@@ -124,19 +145,20 @@ def process_folders_from_csv(csv_file, output_csv):
             # Search for MyBatis/iBATIS mapper and SQL files in the folder and subfolders
             for root, _, files in os.walk(folder):
                 for file_name in files:
-                    file_path = os.path.join(root, file_name)
-                    objects_and_operations = []
+                    if file_name.endswith(('.xml', '.sql')):  # Check for both .xml and .sql
+                        file_path = os.path.join(root, file_name)
+                        objects_and_operations = []
 
-                    # Check if the file is XML and MyBatis/iBATIS mapper, else process SQL
-                    if file_name.endswith('.xml') and is_mybatis_or_ibatis(file_path):
-                        objects_and_operations = extract_objects_and_operations(file_path, is_xml=True)
-                    elif file_name.endswith('.sql'):
-                        objects_and_operations = extract_objects_and_operations(file_path)
+                        # Check if the XML is a MyBatis or iBATIS mapper
+                        if file_name.endswith('.xml') and is_mybatis_or_ibatis(file_path):
+                            objects_and_operations = extract_objects_and_operations(file_path, is_xml=True)
+                        elif file_name.endswith('.sql'):  # Process SQL files directly
+                            objects_and_operations = extract_objects_and_operations(file_path)
 
-                    # Write results to CSV only if objects are found
-                    if objects_and_operations:
-                        for object_name, object_type, operation_type in objects_and_operations:
-                            writer.writerow([folder, root, file_path, file_name, object_name, object_type, operation_type])
+                        # Write results to CSV only if objects are found
+                        if objects_and_operations:
+                            for object_name, object_type, operation_type in objects_and_operations:
+                                writer.writerow([folder, root, file_path, file_name, object_name, object_type, operation_type])
 # Example usage
 csv_input = 'D:/program/test/file-db.csv'  # Replace with your CSV file containing folder names
 csv_output = 'D:/program/test/out-reponsedb.csv'  # Output CSV file for folder and table names
