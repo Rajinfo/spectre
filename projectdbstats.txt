@@ -1,6 +1,7 @@
 import os
 import re
 import csv
+import xlsxwriter
 
 def read_in_chunks(file_object, chunk_size=1024):
     """Lazy function (generator) to read a file piece by piece."""
@@ -16,73 +17,70 @@ def is_mybatis_or_ibatis(file_path):
         content = file.read(3300)
         return ('<!DOCTYPE mapper' in content or '<!DOCTYPE sqlMap' in content)
 
-def extract_objects_and_operations(file_path, is_xml=False):
-    """Extract tables, procedures, views, triggers, and operations."""
-
-    # SQL Patterns for table, procedures, views, etc.
-    table_pattern = r'\b(?:FROM|JOIN|LEFT\s+JOIN|RIGHT\s+JOIN|INNER\s+JOIN|OUTER\s+JOIN|CROSS\s+JOIN|MERGE\s+INTO|UPDATE|DELETE\s+FROM|INTO)\s+([a-zA-Z0-9_\.]+)\s*(?:AS\s+)?([a-zA-Z0-9_]+)?'
+def extract_from_xml(file_path):
+    """Extract operations and table names from XML files."""
+    
+    table_pattern = r'\b(?:FROM|JOIN|INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO)\s+([a-zA-Z0-9_\.]+)\s*(?:AS\s+)?([a-zA-Z0-9_]+)?'
     select_tag_pattern = r'<(select|update|insert|delete)\s+.*?>.*?</\1>'
     
-    # Other patterns for various object types
+    objects_and_operations = []
+    content = []
+    
+    with open(file_path, 'r', encoding='utf-8') as file:
+        inside_comment_block = False
+        for chunk in read_in_chunks(file):
+            chunk_lines = chunk.splitlines()
+            for line in chunk_lines:
+                line = line.strip()
+
+                # Handle block comments in XML
+                if line.startswith('<!--'):
+                    inside_comment_block = True
+                if inside_comment_block:
+                    if '-->' in line:
+                        inside_comment_block = False
+                    continue
+
+                # Remove inline XML comments
+                line = re.sub(r'<!--.*?-->', '', line)
+
+                # Skip <select>, <update>, <insert>, <delete> with 'id' attributes
+                if re.search(r'<(select|update|insert|delete)\s+[^>]*id\s*=', line, re.IGNORECASE):
+                    continue
+
+                content.append(line)
+
+        # Find SQL queries within XML tags and capture table names
+        xml_content = '\n'.join(content)
+        for tag_match in re.findall(select_tag_pattern, xml_content, re.IGNORECASE | re.DOTALL):
+            operation_type = tag_match.lower()  # Extract operation type
+            tag_content = re.search(r'>\s*(SELECT|INSERT|UPDATE|DELETE).*?<', xml_content, re.IGNORECASE | re.DOTALL)
+            if tag_content:
+                # Extract tables within the SQL queries in XML
+                for match in re.findall(table_pattern, tag_content.group(0), re.IGNORECASE | re.DOTALL):
+                    table_name = match[0]
+                    objects_and_operations.append((table_name, 'Table', operation_type))
+
+    return objects_and_operations
+
+def extract_from_sql(file_path):
+    """Extract tables, procedures, views, triggers, and operations from SQL files."""
+    
+    table_pattern = r'\b(?:FROM|JOIN|INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO)\s+([a-zA-Z0-9_\.]+)\s*(?:AS\s+)?([a-zA-Z0-9_]+)?'
     procedure_pattern = r'CREATE\s+OR\s+REPLACE\s+PROCEDURE\s+([a-zA-Z0-9_]+)\s*\('
     function_pattern = r'CREATE\s+OR\s+REPLACE\s+FUNCTION\s+([a-zA-Z0-9_]+)\s*\('
     view_pattern = r'CREATE\s+OR\s+REPLACE\s+VIEW\s+([a-zA-Z0-9_]+)'
     trigger_pattern = r'CREATE\s+(OR\s+REPLACE\s+)?TRIGGER\s+([a-zA-Z0-9_]+)\s+.*?\s+ON\s+([a-zA-Z0-9_]+)'
 
     objects_and_operations = []
-    is_xml = file_path.endswith('.xml')
     content = []
-    inside_sql_tag = False
 
     with open(file_path, 'r', encoding='utf-8') as file:
-        if is_xml:
-            inside_comment_block = False
-            for chunk in read_in_chunks(file):
-                chunk_lines = chunk.splitlines()
-                for line in chunk_lines:
-                    line = line.strip()
-
-                    # Handle block comments in XML
-                    if line.startswith('<!--'):
-                        inside_comment_block = True
-                    if inside_comment_block:
-                        if '-->' in line:
-                            inside_comment_block = False
-                        continue
-
-                    # Remove inline XML comments
-                    line = re.sub(r'<!--.*?-->', '', line)
-
-                    # Detect start of SQL tags <select>, <update>, <insert>, <delete> with 'id' attribute
-                    if re.search(r'<(select|update|insert|delete)\s+[^>]*id\s*=', line, re.IGNORECASE):
-                        inside_sql_tag = True
-                        continue  # Skip the tag with 'id', but do not skip the SQL content
-
-                    # Detect the end of the SQL tags
-                    if inside_sql_tag and re.search(r'</(select|update|insert|delete)>', line, re.IGNORECASE):
-                        inside_sql_tag = False
-                        continue  # Skip the closing tag, but capture SQL before this
-
-                    # Capture SQL content within tags
-                    if inside_sql_tag:
-                        content.append(line)
-
-            # Find SQL queries within XML tags and capture table names
-            xml_content = '\n'.join(content)
-            for tag_match in re.findall(select_tag_pattern, xml_content, re.IGNORECASE | re.DOTALL):
-                tag_content = re.search(r'>\s*(SELECT|INSERT|UPDATE|DELETE).*?<', xml_content, re.IGNORECASE | re.DOTALL)
-                if tag_content:
-                    # Extract tables within the SQL queries in XML
-                    for match in re.findall(table_pattern, tag_content.group(0), re.IGNORECASE | re.DOTALL):
-                        table_name = match[0]
-                        objects_and_operations.append((table_name, 'Table', tag_match.lower()))
-
-        else:
-            # SQL file processing: remove inline SQL comments like -- and /* ... */
-            for chunk in read_in_chunks(file):
-                chunk = re.sub(r'--.*', '', chunk)
-                chunk = re.sub(r'/\*.*?\*/', '', chunk, flags=re.DOTALL)
-                content.append(chunk)
+        # SQL file processing: remove inline SQL comments like -- and /* ... */
+        for chunk in read_in_chunks(file):
+            chunk = re.sub(r'--.*', '', chunk)
+            chunk = re.sub(r'/\*.*?\*/', '', chunk, flags=re.DOTALL)
+            content.append(chunk)
 
         # Rejoin the content for regex processing
         content = '\n'.join(content)
@@ -97,7 +95,8 @@ def extract_objects_and_operations(file_path, is_xml=False):
         # Search for table-related operations
         for match in re.findall(table_pattern, content, re.IGNORECASE | re.DOTALL):
             table_name = match[0]
-            objects_and_operations.append((table_name, 'Table', 'select' if 'from' in match[0].lower() else ''))
+            operation_type = 'select' if 'from' in match[0].lower() else ''
+            objects_and_operations.append((table_name, 'Table', operation_type))
 
         # Other object searches
         for match in re.findall(procedure_pattern, content, re.IGNORECASE | re.DOTALL):
@@ -109,37 +108,55 @@ def extract_objects_and_operations(file_path, is_xml=False):
 
     return objects_and_operations
 
-def process_folders_from_csv(csv_file, output_csv):
-    """Process folders listed in CSV, find MyBatis/iBATIS mapper and SQL files."""
+def process_folders_from_csv(csv_file, output_xml, output_sql):
+    """Process folders listed in CSV, separate handling for XML and SQL files."""
     with open(csv_file, 'r', encoding='utf-8') as file:
         reader = csv.reader(file)
         folder_names = [row[0] for row in reader]
 
-    # Write results
-    with open(output_csv, 'w', newline='', encoding='utf-8') as csvfile:
-        writer = csv.writer(csvfile)
-        writer.writerow(['FolderName', 'FolderPath', 'FilePath', 'FileName', 'ObjectName', 'ObjectType', 'OperationType'])
+    # Create Excel workbooks for XML and SQL
+    workbook_xml = xlsxwriter.Workbook(output_xml)
+    workbook_sql = xlsxwriter.Workbook(output_sql)
+    
+    worksheet_xml = workbook_xml.add_worksheet("XML Data")
+    worksheet_sql = workbook_sql.add_worksheet("SQL Data")
+    
+    # Write headers for XML and SQL
+    headers = ['FolderName', 'FolderPath', 'FilePath', 'FileName', 'ObjectName', 'ObjectType', 'OperationType']
+    worksheet_xml.write_row(0, 0, headers)
+    worksheet_sql.write_row(0, 0, headers)
+    
+    xml_row, sql_row = 1, 1
 
-        for folder in folder_names:
-            for root, _, files in os.walk(folder):
-                for file_name in files:
-                    if file_name.endswith(('.xml', '.sql')):
-                        file_path = os.path.join(root, file_name)
-                        objects_and_operations = []
+    for folder in folder_names:
+        for root, _, files in os.walk(folder):
+            for file_name in files:
+                file_path = os.path.join(root, file_name)
+                objects_and_operations = []
 
-                        # Check if the XML is MyBatis or iBATIS
-                        if file_name.endswith('.xml') and is_mybatis_or_ibatis(file_path):
-                            objects_and_operations = extract_objects_and_operations(file_path, is_xml=True)
-                        elif file_name.endswith('.sql'):
-                            objects_and_operations = extract_objects_and_operations(file_path)
+                # Process XML files
+                if file_name.endswith('.xml') and is_mybatis_or_ibatis(file_path):
+                    objects_and_operations = extract_from_xml(file_path)
+                    for object_name, object_type, operation_type in objects_and_operations:
+                        worksheet_xml.write_row(xml_row, 0, [folder, root, file_path, file_name, object_name, object_type, operation_type])
+                        xml_row += 1
 
-                        if objects_and_operations:
-                            for object_name, object_type, operation_type in objects_and_operations:
-                                writer.writerow([folder, root, file_path, file_name, object_name, object_type, operation_type])
+                # Process SQL files
+                elif file_name.endswith('.sql'):
+                    objects_and_operations = extract_from_sql(file_path)
+                    for object_name, object_type, operation_type in objects_and_operations:
+                        worksheet_sql.write_row(sql_row, 0, [folder, root, file_path, file_name, object_name, object_type, operation_type])
+                        sql_row += 1
+
+    # Close the workbooks
+    workbook_xml.close()
+    workbook_sql.close()
 
 # Example usage
 csv_input = 'D:/program/test/file-db.csv'  # Replace with your CSV file containing folder names
-csv_output = 'D:/program/test/out-reponsedb.csv'  # Output CSV file for folder and table names
-process_folders_from_csv(csv_input, csv_output)
+xml_output = 'D:/program/test/xml-output.xlsx'  # Output Excel file for XML data
+sql_output = 'D:/program/test/sql-output.xlsx'  # Output Excel file for SQL data
 
-print("Table names extracted and saved to", csv_output)
+process_folders_from_csv(csv_input, xml_output, sql_output)
+
+print("Table names and operations extracted and saved to", xml_output, "and", sql_output)
