@@ -10,9 +10,10 @@ def is_mybatis_or_ibatis(file_path):
         content = file.read(3300)  # Read the first 300 characters to check the DTD
         return ('<!DOCTYPE mapper' in content or '<!DOCTYPE sqlMap' in content)
 
-def extract_objects_and_operations(file_path):
+def extract_objects_and_operations(file_path, is_xml=False):
     """
     Extract table names, procedures, views, triggers, and operations from MyBatis/iBATIS mapper or SQL file.
+    If the file is an XML, additional processing is done to handle XML-specific conditions.
     """
     # Regex patterns for objects and operations
     table_pattern = r'(FROM|JOIN|INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO)\s+([a-zA-Z0-9_.]+)(?:\s+(?:AS\s+)?([a-zA-Z0-9_]+))?'  # Table operations
@@ -30,11 +31,34 @@ def extract_objects_and_operations(file_path):
     objects_and_operations = []
 
     with open(file_path, 'r', encoding='utf-8') as file:
-        content = file.read()
+        content = file.readlines() if is_xml else file.read()
 
-        # Remove inline SQL comments like -- and /* ... */
-        content = re.sub(r'--.*', '', content)
-        content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+        if is_xml:
+            # XML-specific processing
+            inside_comment_block = False
+            for line in content:
+                line = line.strip()
+
+                # Handle block comments in XML
+                if line.startswith('<!--'):
+                    inside_comment_block = True
+                if inside_comment_block:
+                    if '-->' in line:
+                        inside_comment_block = False
+                    continue
+
+                # Remove inline XML comments like <!-- ... -->
+                line = re.sub(r'<!--.*?-->', '', line)
+
+                # Skip lines with <select>, <update>, <insert>, <delete> tags with 'id' attributes
+                if re.search(r'<(select|update|insert|delete)\s+[^>]*id\s*=', line, re.IGNORECASE):
+                    continue
+
+                content = '\n'.join(content)  # Rejoin lines for regex search in case needed later
+        else:
+            # SQL file processing: remove inline SQL comments like -- and /* ... */
+            content = re.sub(r'--.*', '', content)
+            content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
 
         # Trigger detection
         for match in re.findall(trigger_pattern, content, re.IGNORECASE | re.DOTALL):
@@ -47,7 +71,7 @@ def extract_objects_and_operations(file_path):
         for match in re.findall(table_pattern, content, re.IGNORECASE):
             operation_keyword = match[0].lower()
             table_name = match[1]
-
+            operation_type = 'default'
             # Map SQL keywords to appropriate operation types
             if operation_keyword in ('from', 'join'):
                 operation_type = 'select'
@@ -100,20 +124,19 @@ def process_folders_from_csv(csv_file, output_csv):
             # Search for MyBatis/iBATIS mapper and SQL files in the folder and subfolders
             for root, _, files in os.walk(folder):
                 for file_name in files:
-                    if file_name.endswith(('.xml', '.sql')):  # Check for both .xml and .sql
-                        file_path = os.path.join(root, file_name)
-                        objects_and_operations = []
+                    file_path = os.path.join(root, file_name)
+                    objects_and_operations = []
 
-                        # Check if the XML is a MyBatis or iBATIS mapper
-                        if file_name.endswith('.xml') and is_mybatis_or_ibatis(file_path):
-                            objects_and_operations = extract_objects_and_operations(file_path)
-                        elif file_name.endswith('.sql'):  # Process SQL files directly
-                            objects_and_operations = extract_objects_and_operations(file_path)
+                    # Check if the file is XML and MyBatis/iBATIS mapper, else process SQL
+                    if file_name.endswith('.xml') and is_mybatis_or_ibatis(file_path):
+                        objects_and_operations = extract_objects_and_operations(file_path, is_xml=True)
+                    elif file_name.endswith('.sql'):
+                        objects_and_operations = extract_objects_and_operations(file_path)
 
-                        # Write results to CSV only if objects are found
-                        if objects_and_operations:
-                            for object_name, object_type, operation_type in objects_and_operations:
-                                writer.writerow([folder, root, file_path, file_name, object_name, object_type, operation_type])
+                    # Write results to CSV only if objects are found
+                    if objects_and_operations:
+                        for object_name, object_type, operation_type in objects_and_operations:
+                            writer.writerow([folder, root, file_path, file_name, object_name, object_type, operation_type])
 # Example usage
 csv_input = 'D:/program/test/file-db.csv'  # Replace with your CSV file containing folder names
 csv_output = 'D:/program/test/out-reponsedb.csv'  # Output CSV file for folder and table names
