@@ -20,131 +20,65 @@ def extract_objects_and_operations(file_path):
     function_pattern = r'CREATE\s+OR\s+REPLACE\s+FUNCTION\s+([a-zA-Z0-9_]+)\s*\('  # Stored function
     view_pattern = r'CREATE\s+OR\s+REPLACE\s+VIEW\s+([a-zA-Z0-9_]+)'  # View
     materialized_view_pattern = r'CREATE\s+MATERIALIZED\s+VIEW\s+([a-zA-Z0-9_]+)'  # Materialized View
-    trigger_pattern = r'CREATE\s+(OR\s+REPLACE\s+)?TRIGGER\s+([a-zA-Z0-9_]+).*ON\s+([a-zA-Z0-9_]+)'  # Trigger and table
     create_pattern = r'CREATE\s+TABLE\s+([a-zA-Z0-9_]+)'  # Create table
     alter_pattern = r'ALTER\s+TABLE\s+([a-zA-Z0-9_]+)'  # Alter table
     delete_pattern = r'DELETE\s+FROM\s+([a-zA-Z0-9_]+)'  # Delete table
     merge_pattern = r'MERGE\s+INTO\s+([a-zA-Z0-9_.]+)'  # Merge statement
-    comment_block_pattern = r'<!--.*?-->'  # XML comment block
     select_count_pattern = r'SELECT\s+COUNT\(\*\)\s+INTO\s+\w+\s+FROM\s+([a-zA-Z0-9_]+)'  # SELECT COUNT INTO
-    multi_line_object_pattern = r'CREATE\s+OR\s+REPLACE\s+(TRIGGER|PROCEDURE|FUNCTION|VIEW|MATERIALIZED\s+VIEW)\s+([a-zA-Z0-9_]+)'  # Multi-line triggers, views, procedures
-
-    # Pattern to ignore <select>, <update>, <insert>, <delete> tags
-    ignore_tag_pattern = r'<\s*(select|update|insert|delete)\s+id='
+    trigger_pattern = r'CREATE\s+(OR\s+REPLACE\s+)?TRIGGER\s+([a-zA-Z0-9_]+)\s+.*?\s+ON\s+([a-zA-Z0-9_]+)'  # Trigger pattern
 
     objects_and_operations = []
-    inside_comment_block = False
-    multi_line_object = None
-    trigger_table = None
 
-    with open(file_path, 'r', encoding='utf-8') as file:  # Use UTF-8 encoding
-        for line in file:
-            line = line.strip()
+    with open(file_path, 'r', encoding='utf-8') as file:
+        content = file.read()
 
-            # Handle block comments in XML
-            if line.startswith('<!--'):
-                inside_comment_block = True
-            if inside_comment_block:
-                if '-->' in line:
-                    inside_comment_block = False
-                continue
+        # Remove inline SQL comments like -- and /* ... */
+        content = re.sub(r'--.*', '', content)
+        content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
 
-            # Remove inline XML comments like <!-- ... -->
-            line = re.sub(comment_block_pattern, '', line)
+        # Trigger detection
+        for match in re.findall(trigger_pattern, content, re.IGNORECASE | re.DOTALL):
+            trigger_name = match[1]
+            table_name = match[2]
+            objects_and_operations.append((trigger_name, 'Trigger', 'create'))
+            objects_and_operations.append((table_name, 'Table', 'trigger'))
 
-            # Ignore everything after '--' for SQL comments
-            if '--' in line:
-                line = line.split('--', 1)[0]
+        # Search for table-related operations
+        for match in re.findall(table_pattern, content, re.IGNORECASE):
+            operation_keyword = match[0].lower()
+            table_name = match[1]
 
-            # Skip lines that are comments (starting with --) or have <select>, <update>, <insert>, <delete> tags with 'id' attributes
-            if line.startswith('--') or re.search(ignore_tag_pattern, line, re.IGNORECASE):
-                continue
+            # Map SQL keywords to appropriate operation types
+            if operation_keyword in ('from', 'join'):
+                operation_type = 'select'
+            elif operation_keyword == 'into':
+                operation_type = 'insert'
+            elif operation_keyword == 'update':
+                operation_type = 'update'
+            elif operation_keyword == 'delete from':
+                operation_type = 'delete'
+            elif operation_keyword == 'merge into':
+                operation_type = 'merge'
 
-            # Multi-line trigger, procedure, function, view detection
-            if multi_line_object:
-                if "ON" in line and "TRIGGER" in multi_line_object[0].lower():
-                    trigger_table_match = re.search(r'ON\s+([a-zA-Z0-9_]+)', line)
-                    if trigger_table_match:
-                        trigger_table = trigger_table_match.group(1)
-                        objects_and_operations.append((multi_line_object[1], 'Trigger', 'create'))
-                        objects_and_operations.append((trigger_table, 'Table', 'trigger'))
-                    multi_line_object = None
-                elif ";" in line:
-                    multi_line_object = None  # End of multi-line object declaration
-                continue
+            objects_and_operations.append((table_name, 'Table', operation_type))
 
-            # Detect start of multi-line triggers, procedures, functions, views
-            multi_line_match = re.search(multi_line_object_pattern, line, re.IGNORECASE)
-            if multi_line_match:
-                multi_line_object = (multi_line_match.group(1).lower(), multi_line_match.group(2))
-                continue
+        # Search for create, alter, delete operations
+        for match in re.findall(create_pattern, content, re.IGNORECASE):
+            objects_and_operations.append((match, 'Table', 'create'))
+        for match in re.findall(alter_pattern, content, re.IGNORECASE):
+            objects_and_operations.append((match, 'Table', 'alter'))
+        for match in re.findall(delete_pattern, content, re.IGNORECASE):
+            objects_and_operations.append((match, 'Table', 'delete'))
 
-            # For CREATE OR REPLACE TRIGGER: prioritize checking for SELECT COUNT INTO before matching tables
-            if re.search(r'CREATE\s+OR\s+REPLACE\s+TRIGGER', line, re.IGNORECASE):
-                if re.search(select_count_pattern, line, re.IGNORECASE):
-                    for match in re.findall(select_count_pattern, line, re.IGNORECASE):
-                        objects_and_operations.append((match, 'Table', 'select'))
-                else:
-                    # Proceed with table pattern matching if SELECT COUNT INTO is not found
-                    for match in re.findall(table_pattern, line, re.IGNORECASE):
-                        operation_keyword = match[0].lower()
-                        table_name = match[1]
-
-                        # Map SQL keywords to appropriate operation types
-                        if operation_keyword in ('from', 'join'):
-                            operation_type = 'select'
-                        elif operation_keyword == 'into':
-                            operation_type = 'insert'
-                        elif operation_keyword == 'update':
-                            operation_type = 'update'
-                        elif operation_keyword == 'delete from':
-                            operation_type = 'delete'
-                        elif operation_keyword == 'merge into':
-                            operation_type = 'merge'
-
-                        objects_and_operations.append((table_name, 'Table', operation_type))
-
-            # Search for tables and operations
-            for match in re.findall(table_pattern, line, re.IGNORECASE):
-                operation_keyword = match[0].lower()
-                table_name = match[1]
-
-                # Map SQL keywords to appropriate operation types
-                if operation_keyword in ('from', 'join'):
-                    operation_type = 'select'
-                elif operation_keyword == 'into':
-                    operation_type = 'insert'
-                elif operation_keyword == 'update':
-                    operation_type = 'update'
-                elif operation_keyword == 'delete from':
-                    operation_type = 'delete'
-                elif operation_keyword == 'merge into':
-                    operation_type = 'merge'
-
-                objects_and_operations.append((table_name, 'Table', operation_type))
-
-            # Search for create, alter, delete operations specifically
-            for match in re.findall(create_pattern, line, re.IGNORECASE):
-                objects_and_operations.append((match, 'Table', 'create'))
-            for match in re.findall(alter_pattern, line, re.IGNORECASE):
-                objects_and_operations.append((match, 'Table', 'alter'))
-            for match in re.findall(delete_pattern, line, re.IGNORECASE):
-                objects_and_operations.append((match, 'Table', 'delete'))
-
-            # Search for procedures, functions, views, materialized views, and triggers
-            for match in re.findall(procedure_pattern, line, re.IGNORECASE):
-                objects_and_operations.append((match[1], 'PLSQL', 'create or replace procedure'))
-            for match in re.findall(function_pattern, line, re.IGNORECASE):
-                objects_and_operations.append((match, 'PLSQL', 'create or replace function'))
-            for match in re.findall(view_pattern, line, re.IGNORECASE):
-                objects_and_operations.append((match[1], 'View', 'create or replace view'))
-            for match in re.findall(materialized_view_pattern, line, re.IGNORECASE):
-                objects_and_operations.append((match, 'MaterializedView', 'create'))
-            for match in re.findall(trigger_pattern, line, re.IGNORECASE):
-                trigger_name = match[1]
-                table_name = match[2]
-                objects_and_operations.append((trigger_name, 'Trigger', 'create'))
-                objects_and_operations.append((table_name, 'Table', 'trigger'))
+        # Search for procedures, functions, views, and materialized views
+        for match in re.findall(procedure_pattern, content, re.IGNORECASE):
+            objects_and_operations.append((match, 'PLSQL', 'create or replace procedure'))
+        for match in re.findall(function_pattern, content, re.IGNORECASE):
+            objects_and_operations.append((match, 'PLSQL', 'create or replace function'))
+        for match in re.findall(view_pattern, content, re.IGNORECASE):
+            objects_and_operations.append((match, 'View', 'create or replace view'))
+        for match in re.findall(materialized_view_pattern, content, re.IGNORECASE):
+            objects_and_operations.append((match, 'MaterializedView', 'create'))
 
     return objects_and_operations
 
@@ -163,7 +97,6 @@ def process_folders_from_csv(csv_file, output_csv):
         writer.writerow(['FolderName', 'FolderPath', 'FilePath', 'FileName', 'ObjectName', 'ObjectType', 'OperationType'])
 
         for folder in folder_names:
-            print("folder names extracted is", folder)
             # Search for MyBatis/iBATIS mapper and SQL files in the folder and subfolders
             for root, _, files in os.walk(folder):
                 for file_name in files:
@@ -174,10 +107,9 @@ def process_folders_from_csv(csv_file, output_csv):
                         # Check if the XML is a MyBatis or iBATIS mapper
                         if file_name.endswith('.xml') and is_mybatis_or_ibatis(file_path):
                             objects_and_operations = extract_objects_and_operations(file_path)
-                            print('Table names extracted from xml file for %s is %s', file_path, objects_and_operations)
                         elif file_name.endswith('.sql'):  # Process SQL files directly
                             objects_and_operations = extract_objects_and_operations(file_path)
-                            print('Table names extracted from sql file for %s is %s', file_path, objects_and_operations)
+
                         # Write results to CSV only if objects are found
                         if objects_and_operations:
                             for object_name, object_type, operation_type in objects_and_operations:
