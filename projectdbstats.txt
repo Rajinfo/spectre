@@ -28,7 +28,7 @@ def extract_objects_and_operations(file_path, is_xml=False):
     Handles XML-specific processing and SQL-specific processing.
     """
     # Regex patterns for objects and operations
-    table_pattern = r'(FROM|JOIN|INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO)\s+([a-zA-Z0-9_.]+)(?:\s+(?:AS\s+)?([a-zA-Z0-9_]+))?'
+    table_pattern = r'\b(?:FROM|JOIN|INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO)\s+([a-zA-Z0-9_\.]+)\s*(?:AS\s+)?([a-zA-Z0-9_]+)?'
     procedure_pattern = r'CREATE\s+OR\s+REPLACE\s+PROCEDURE\s+([a-zA-Z0-9_]+)\s*\('
     function_pattern = r'CREATE\s+OR\s+REPLACE\s+FUNCTION\s+([a-zA-Z0-9_]+)\s*\('
     view_pattern = r'CREATE\s+OR\s+REPLACE\s+VIEW\s+([a-zA-Z0-9_]+)'
@@ -88,41 +88,40 @@ def extract_objects_and_operations(file_path, is_xml=False):
         objects_and_operations.append((table_name, 'Table', 'trigger'))
 
     # Search for table-related operations
-    for match in re.findall(table_pattern, content, re.IGNORECASE):
-        operation_keyword = match[0].lower()
-        table_name = match[1]
+    for match in re.findall(table_pattern, content, re.IGNORECASE | re.DOTALL):
+        table_name = match[0]  # Capture schema-qualified table name like ex.cat
+        alias = match[1]  # Capture alias like a, b, c if present
 
         # Map SQL keywords to appropriate operation types
-        operation_type = 'unknown'
-        if operation_keyword in ('from', 'join'):
+        if 'from' in content.lower() or 'join' in content.lower():
             operation_type = 'select'
-        elif operation_keyword == 'into':
+        elif 'into' in content.lower():
             operation_type = 'insert'
-        elif operation_keyword == 'update':
+        elif 'update' in content.lower():
             operation_type = 'update'
-        elif operation_keyword == 'delete from':
+        elif 'delete from' in content.lower():
             operation_type = 'delete'
-        elif operation_keyword == 'merge into':
+        elif 'merge into' in content.lower():
             operation_type = 'merge'
 
         objects_and_operations.append((table_name, 'Table', operation_type))
 
     # Search for create, alter, delete operations
-    for match in re.findall(create_pattern, content, re.IGNORECASE):
+    for match in re.findall(create_pattern, content, re.IGNORECASE | re.DOTALL):
         objects_and_operations.append((match, 'Table', 'create'))
-    for match in re.findall(alter_pattern, content, re.IGNORECASE):
+    for match in re.findall(alter_pattern, content, re.IGNORECASE | re.DOTALL):
         objects_and_operations.append((match, 'Table', 'alter'))
-    for match in re.findall(delete_pattern, content, re.IGNORECASE):
+    for match in re.findall(delete_pattern, content, re.IGNORECASE | re.DOTALL):
         objects_and_operations.append((match, 'Table', 'delete'))
 
     # Search for procedures, functions, views, and materialized views
-    for match in re.findall(procedure_pattern, content, re.IGNORECASE):
+    for match in re.findall(procedure_pattern, content, re.IGNORECASE | re.DOTALL):
         objects_and_operations.append((match, 'PLSQL', 'create or replace procedure'))
-    for match in re.findall(function_pattern, content, re.IGNORECASE):
+    for match in re.findall(function_pattern, content, re.IGNORECASE | re.DOTALL):
         objects_and_operations.append((match, 'PLSQL', 'create or replace function'))
-    for match in re.findall(view_pattern, content, re.IGNORECASE):
+    for match in re.findall(view_pattern, content, re.IGNORECASE | re.DOTALL):
         objects_and_operations.append((match, 'View', 'create or replace view'))
-    for match in re.findall(materialized_view_pattern, content, re.IGNORECASE):
+    for match in re.findall(materialized_view_pattern, content, re.IGNORECASE | re.DOTALL):
         objects_and_operations.append((match, 'MaterializedView', 'create'))
 
     return objects_and_operations
