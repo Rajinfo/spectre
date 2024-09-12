@@ -2,7 +2,7 @@ import os
 import re
 import csv
 
-def read_in_chunks(file_object, chunk_size=1048576):
+def read_in_chunks(file_object, chunk_size=1048576):  # 1 MB chunk size
     while True:
         data = file_object.read(chunk_size)
         if not data:
@@ -13,34 +13,38 @@ def extract_objects_from_sql(file_path):
     table_pattern = r'\b(?:FROM|JOIN|INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO)\s+([a-zA-Z0-9_\.]+)\s*(?:AS\s+)?([a-zA-Z0-9_]+)?'
     procedure_pattern = r'CREATE\s+OR\s+REPLACE\s+PROCEDURE\s+([a-zA-Z0-9_]+)\s*\('
     function_pattern = r'CREATE\s+OR\s+REPLACE\s+FUNCTION\s+([a-zA-Z0-9_]+)\s*\('
-    view_pattern = r'CREATE\s+OR\s+REPLACE\s+VIEW\s+([a-zA-Z0-9_]+)'
+    view_pattern = r'CREATE\s+OR\s+REPLACE\s+(?:FORCE\s+)?VIEW\s+([a-zA-Z0-9_\.]+)'
     materialized_view_pattern = r'CREATE\s+MATERIALIZED\s+VIEW\s+([a-zA-Z0-9_]+)'
     create_pattern = r'CREATE\s+TABLE\s+([a-zA-Z0-9_]+)'
     alter_pattern = r'ALTER\s+TABLE\s+([a-zA-Z0-9_]+)'
     delete_pattern = r'DELETE\s+FROM\s+([a-zA-Z0-9_]+)'
     merge_pattern = r'MERGE\s+INTO\s+([a-zA-Z0-9_.]+)'
     trigger_pattern = r'CREATE\s+(OR\s+REPLACE\s+)?TRIGGER\s+([a-zA-Z0-9_]+)\s+.*?\s+ON\s+([a-zA-Z0-9_]+)'
+    drop_procedure_pattern = r'DROP\s+PROCEDURE\s+([a-zA-Z0-9_]+)'
+    drop_trigger_pattern = r'DROP\s+TRIGGER\s+([a-zA-Z0-9_]+)'
+    drop_view_pattern = r'DROP\s+VIEW\s+([a-zA-Z0-9_\.]+)'
 
     objects_and_operations = []
     content = []
 
     with open(file_path, 'r', encoding='utf-8') as file:
         for chunk in read_in_chunks(file):
-            chunk = re.sub(r'--.*', '', chunk)
-            chunk = re.sub(r'/\*.*?\*/', '', chunk, flags=re.DOTALL)
+            chunk = re.sub(r'--.*', '', chunk)  # Remove comments
+            chunk = re.sub(r'/\*.*?\*/', '', chunk, flags=re.DOTALL)  # Remove multi-line comments
             content.append(chunk)
 
     content = '\n'.join(content)
 
+    # Capture triggers
     for match in re.findall(trigger_pattern, content, re.IGNORECASE | re.DOTALL):
         trigger_name = match[1]
         table_name = match[2]
         objects_and_operations.append((trigger_name, 'Trigger', 'create'))
         objects_and_operations.append((table_name, 'Table', 'trigger'))
 
+    # Capture tables with aliases
     for match in re.findall(table_pattern, content, re.IGNORECASE | re.DOTALL):
         table_name = match[0]
-        alias = match[1]
         operation_type = 'default'
         if 'from' in content.lower() or 'join' in content.lower():
             operation_type = 'select'
@@ -55,6 +59,7 @@ def extract_objects_from_sql(file_path):
 
         objects_and_operations.append((table_name, 'Table', operation_type))
 
+    # Capture DDL and DML operations
     for match in re.findall(create_pattern, content, re.IGNORECASE | re.DOTALL):
         objects_and_operations.append((match, 'Table', 'create'))
     for match in re.findall(alter_pattern, content, re.IGNORECASE | re.DOTALL):
@@ -62,14 +67,25 @@ def extract_objects_from_sql(file_path):
     for match in re.findall(delete_pattern, content, re.IGNORECASE | re.DOTALL):
         objects_and_operations.append((match, 'Table', 'delete'))
 
+    # Capture PLSQL objects
     for match in re.findall(procedure_pattern, content, re.IGNORECASE | re.DOTALL):
         objects_and_operations.append((match, 'PLSQL', 'create or replace procedure'))
     for match in re.findall(function_pattern, content, re.IGNORECASE | re.DOTALL):
         objects_and_operations.append((match, 'PLSQL', 'create or replace function'))
+
+    # Capture views
     for match in re.findall(view_pattern, content, re.IGNORECASE | re.DOTALL):
         objects_and_operations.append((match, 'View', 'create or replace view'))
     for match in re.findall(materialized_view_pattern, content, re.IGNORECASE | re.DOTALL):
         objects_and_operations.append((match, 'MaterializedView', 'create'))
+
+    # Capture DROP operations
+    for match in re.findall(drop_procedure_pattern, content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'PLSQL', 'drop procedure'))
+    for match in re.findall(drop_trigger_pattern, content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'Trigger', 'drop trigger'))
+    for match in re.findall(drop_view_pattern, content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'View', 'drop view'))
 
     return objects_and_operations
 
