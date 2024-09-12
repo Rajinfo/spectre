@@ -9,8 +9,18 @@ def read_in_chunks(file_object, chunk_size=1048576):  # 1 MB chunk size
             break
         yield data
 
+def remove_into_clauses(content):
+    # Pattern to find 'INTO' in SELECT statements and remove them
+    into_pattern = r'SELECT\s+.*?\s+INTO\s+.*?(?=FROM|$)'  # Matches SELECT ... INTO ... FROM
+    content = re.sub(into_pattern, lambda m: m.group(0).split('INTO')[0].strip(), content, flags=re.IGNORECASE)
+    return content
+
 def extract_objects_from_sql(file_path):
-    table_pattern = r'\b(?:FROM|JOIN|INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO)\s+([a-zA-Z0-9_\.]+)\s*(?:AS\s+)?([a-zA-Z0-9_]+)?'
+    # Patterns to capture table names for different SQL operations
+    table_pattern = r'\b(?:FROM|JOIN)\s+([a-zA-Z0-9_\.]+)\s*(?:AS\s+)?([a-zA-Z0-9_]+)?(?:\s*,\s*([a-zA-Z0-9_\.]+))*'
+    insert_pattern = r'INSERT\s+INTO\s+([a-zA-Z0-9_\.]+)\s*\('
+    update_pattern = r'UPDATE\s+([a-zA-Z0-9_\.]+)'
+
     procedure_pattern = r'CREATE\s+OR\s+REPLACE\s+PROCEDURE\s+([a-zA-Z0-9_]+)\s*\('
     function_pattern = r'CREATE\s+OR\s+REPLACE\s+FUNCTION\s+([a-zA-Z0-9_]+)\s*\('
     view_pattern = r'CREATE\s+OR\s+REPLACE\s+(?:FORCE\s+)?VIEW\s+([a-zA-Z0-9_\.]+)'
@@ -19,7 +29,9 @@ def extract_objects_from_sql(file_path):
     alter_pattern = r'ALTER\s+TABLE\s+([a-zA-Z0-9_]+)'
     delete_pattern = r'DELETE\s+FROM\s+([a-zA-Z0-9_]+)'
     merge_pattern = r'MERGE\s+INTO\s+([a-zA-Z0-9_.]+)'
-    trigger_pattern = r'CREATE\s+(OR\s+REPLACE\s+)?TRIGGER\s+([a-zA-Z0-9_]+)\s+.*?\s+ON\s+([a-zA-Z0-9_]+)'
+
+    # Updated trigger pattern to capture both trigger name and table name after ON clause
+    trigger_pattern = r'CREATE\s+OR\s+REPLACE\s+TRIGGER\s+([a-zA-Z0-9_]+).*?\s+ON\s+([a-zA-Z0-9_]+)'
     drop_procedure_pattern = r'DROP\s+PROCEDURE\s+([a-zA-Z0-9_]+)'
     drop_trigger_pattern = r'DROP\s+TRIGGER\s+([a-zA-Z0-9_]+)'
     drop_view_pattern = r'DROP\s+VIEW\s+([a-zA-Z0-9_\.]+)'
@@ -34,30 +46,25 @@ def extract_objects_from_sql(file_path):
             content.append(chunk)
 
     content = '\n'.join(content)
+    content = remove_into_clauses(content)  # Remove INTO clauses before processing
 
-    # Capture triggers
-    for match in re.findall(trigger_pattern, content, re.IGNORECASE | re.DOTALL):
-        trigger_name = match[1]
-        table_name = match[2]
-        objects_and_operations.append((trigger_name, 'Trigger', 'create'))
-        objects_and_operations.append((table_name, 'Table', 'trigger'))
-
-    # Capture tables with aliases
+    # Capture tables with or without aliases and handle comma-separated tables
     for match in re.findall(table_pattern, content, re.IGNORECASE | re.DOTALL):
-        table_name = match[0]
-        operation_type = 'default'
-        if 'from' in content.lower() or 'join' in content.lower():
-            operation_type = 'select'
-        elif 'into' in content.lower():
-            operation_type = 'insert'
-        elif 'update' in content.lower():
-            operation_type = 'update'
-        elif 'delete from' in content.lower():
-            operation_type = 'delete'
-        elif 'merge into' in content.lower():
-            operation_type = 'merge'
+        primary_table = match[0]  # First table
+        alias = match[1] if match[1] else ''  # Alias for first table (optional)
+        secondary_table = match[2] if match[2] else None  # Additional table after a comma
 
-        objects_and_operations.append((table_name, 'Table', operation_type))
+        objects_and_operations.append((primary_table, 'Table', 'select'))  # Operation type defaulted to 'select'
+        if secondary_table:
+            objects_and_operations.append((secondary_table, 'Table', 'select'))
+
+    # Capture INSERT INTO statements
+    for match in re.findall(insert_pattern, content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'Table', 'insert'))
+
+    # Capture UPDATE statements
+    for match in re.findall(update_pattern, content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'Table', 'update'))
 
     # Capture DDL and DML operations
     for match in re.findall(create_pattern, content, re.IGNORECASE | re.DOTALL):
@@ -78,6 +85,13 @@ def extract_objects_from_sql(file_path):
         objects_and_operations.append((match, 'View', 'create or replace view'))
     for match in re.findall(materialized_view_pattern, content, re.IGNORECASE | re.DOTALL):
         objects_and_operations.append((match, 'MaterializedView', 'create'))
+
+    # Capture triggers and the table they affect
+    for match in re.findall(trigger_pattern, content, re.IGNORECASE | re.DOTALL):
+        trigger_name = match[0]
+        table_name = match[1]
+        objects_and_operations.append((trigger_name, 'Trigger', 'create or replace trigger'))
+        objects_and_operations.append((table_name, 'Table', 'trigger'))
 
     # Capture DROP operations
     for match in re.findall(drop_procedure_pattern, content, re.IGNORECASE | re.DOTALL):
