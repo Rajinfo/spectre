@@ -24,8 +24,8 @@ def extract_objects_from_sql(file_path):
 
     procedure_pattern = r'CREATE\s+OR\s+REPLACE\s+PROCEDURE\s+([a-zA-Z0-9_]+)\s*\('
     function_pattern = r'CREATE\s+OR\s+REPLACE\s+FUNCTION\s+([a-zA-Z0-9_]+)\s*\('
-    package_pattern = r'CREATE\s+OR\s+REPLACE\s+PACKAGE\s+([a-zA-Z0-9_]+)\s+AS\s*(?:\r?\n|.)*?\bEND\s+([a-zA-Z0-9_]+);'
-    package_body_pattern = r'CREATE\s+OR\s+REPLACE\s+PACKAGE\s+BODY\s+([a-zA-Z0-9_]+)\s+AS\s*(?:\r?\n|.)*?\bEND\s+([a-zA-Z0-9_]+);'
+    package_pattern = r'CREATE\s+OR\s+REPLACE\s+PACKAGE\s+([a-zA-Z0-9_\.]+)\s+AS'
+    package_body_pattern = r'CREATE\s+OR\s+REPLACE\s+PACKAGE\s+BODY\s+([a-zA-Z0-9_\.]+)\s+AS'
     view_pattern = r'CREATE\s+OR\s+REPLACE\s+(?:FORCE\s+)?VIEW\s+([a-zA-Z0-9_\.]+)\s+AS'
     materialized_view_pattern = r'CREATE\s+MATERIALIZED\s+VIEW\s+([a-zA-Z0-9_]+)'
     create_pattern = r'CREATE\s+TABLE\s+([a-zA-Z0-9_]+)'
@@ -87,12 +87,14 @@ def extract_objects_from_sql(file_path):
         objects_and_operations.append((match, 'PLSQL', 'create or replace function'))
 
     # Capture packages and package bodies with updated patterns
+    # Capture packages and package bodies with schema prefixes
     for match in re.findall(package_pattern, content, re.IGNORECASE | re.DOTALL):
-        package_name = match[0]
+        package_name = match
         objects_and_operations.append((package_name, 'Package', 'create or replace package'))
     for match in re.findall(package_body_pattern, content, re.IGNORECASE | re.DOTALL):
-        package_body_name = match[0]
+        package_body_name = match
         objects_and_operations.append((package_body_name, 'PackageBody', 'create or replace package body'))
+
 
     # Capture functions and procedures inside packages
     function_inside_package_pattern = r'FUNCTION\s+([a-zA-Z0-9_]+)'
