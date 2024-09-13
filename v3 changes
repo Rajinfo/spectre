@@ -48,12 +48,21 @@ def extract_tables_from_sql(sql_content, depth=0, max_depth=10):
         from_clause_match = re.search(r'FROM\s+(.+?)(WHERE|JOIN|ON|$)', part, re.IGNORECASE)
         if from_clause_match:
             from_tables = from_clause_match.group(1)
-            for table in re.findall(r'([a-zA-Z0-9_.]+)\s*(?:AS\s+)?([a-zA-Z0-9_]+)?', from_tables):
+            # Handle nested SELECT queries in the FROM clause
+            nested_selects = re.findall(r'\(\s*SELECT\s.*?\s*\)', from_tables, re.IGNORECASE | re.DOTALL)
+            for nested_select in nested_selects:
+                # Recursively extract tables from nested SELECT queries
+                nested_tables = extract_tables_from_sql(nested_select, depth + 1, max_depth)
+                objects_and_operations.extend(nested_tables)
+
+            # Process remaining tables outside of nested SELECTs
+            remaining_tables = re.sub(r'\(\s*SELECT\s.*?\s*\)', '', from_tables).strip()
+            for table in re.findall(r'([a-zA-Z0-9_.]+)\s*(?:AS\s+)?([a-zA-Z0-9_]+)?', remaining_tables):
                 table_name = table[0]
                 alias = table[1] if table[1] else None
                 objects_and_operations.append((table_name, 'Table', 'select'))
 
-        # Handle subqueries
+        # Handle subqueries that are not part of the FROM clause
         subqueries = re.findall(r'\(SELECT\s.*?\)', part, re.IGNORECASE | re.DOTALL)
         for subquery in subqueries:
             # Recursively extract tables from subqueries
@@ -61,7 +70,6 @@ def extract_tables_from_sql(sql_content, depth=0, max_depth=10):
             objects_and_operations.extend(subquery_tables)
 
     return objects_and_operations
-
 
 # Function to extract SQL patterns (tables, PLSQL objects) from SQL statements
 def extract_objects_from_sql(sql_content, operation_type=None):
