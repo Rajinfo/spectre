@@ -17,7 +17,7 @@ def extract_sql_from_cdata(xml_string):
         return [xml_string]
 
 # Enhanced regex patterns from the SQL processing
-table_pattern = r'\b(?:FROM|JOIN)\s+([a-zA-Z0-9_\.]+)\s*(?:AS\s+)?([a-zA-Z0-9_]+)?(?:\s*,\s*([a-zA-Z0-9_\.]+))*'
+table_pattern = r'\b(?:FROM|JOIN)\s+([a-zA-Z0-9_.]+)\s*(?:AS\s+)?([a-zA-Z0-9_]+)?(?:\s*,\s*([a-zA-Z0-9_.]+)\s*(?:AS\s+)?([a-zA-Z0-9_]+)?)*'
 insert_pattern = r'INSERT\s+INTO\s+([a-zA-Z0-9_\.]+)\s*\('
 update_pattern = r'UPDATE\s+([a-zA-Z0-9_\.]+)'
 delete_pattern = r'DELETE\s+FROM\s+([a-zA-Z0-9_\.]+)'
