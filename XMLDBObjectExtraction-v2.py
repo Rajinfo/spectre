@@ -16,7 +16,7 @@ def extract_sql_from_cdata(xml_string):
         # If no CDATA, just return the text content as a fallback
         return [xml_string]
 
-# Enhanced regex patterns from the SQL processing
+# Improved regex pattern to capture table names with optional schema names
 table_pattern = r'\b(?:FROM|JOIN)\s+([a-zA-Z0-9_.]+)\s*(?:AS\s+)?([a-zA-Z0-9_]+)?(?:\s*,\s*([a-zA-Z0-9_.]+)\s*(?:AS\s+)?([a-zA-Z0-9_]+)?)*'
 insert_pattern = r'INSERT\s+INTO\s+([a-zA-Z0-9_\.]+)\s*\('
 update_pattern = r'UPDATE\s+([a-zA-Z0-9_\.]+)'
