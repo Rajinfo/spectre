@@ -68,18 +68,15 @@ def extract_tables_from_sql(sql_content, depth=0, max_depth=10):
                 alias = table[1] if table[1] else None
                 objects_and_operations.append((table_name, 'Table', 'select'))
 
-        # Capture INSERT statements if present
-        insert_matches = re.findall(r'INSERT\s+INTO\s+([a-zA-Z0-9_.]+)\s*(?:AS\s+)?([a-zA-Z0-9_]+)?', part, re.IGNORECASE)
-        for match in insert_matches:
-            table_name = match[0]
-            alias = match[1] if match[1] else None
+        # Capture INSERT statements if present, only the table name
+        insert_matches = re.findall(r'INSERT\s+INTO\s+([a-zA-Z0-9_.]+)', part, re.IGNORECASE)
+        for table_name in insert_matches:
             objects_and_operations.append((table_name, 'Table', 'insert'))
 
-
-        # Handle subqueries that are not part of the FROM clause
-        subqueries = re.findall(r'\(SELECT\s.*?\)', part, re.IGNORECASE | re.DOTALL)
+        # Handle subqueries
+        subqueries = re.findall(r'\(SELECT\s.*?\s+FROM\s+(.+?)\s*(?:WHERE|JOIN|ON|$)', part, re.IGNORECASE | re.DOTALL)
         for subquery in subqueries:
-            # Recursively extract tables from subqueries
+            # Recursively extract tables from valid subqueries
             subquery_tables = extract_tables_from_sql(subquery, depth + 1, max_depth)
             objects_and_operations.extend(subquery_tables)
 
