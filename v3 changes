@@ -25,8 +25,10 @@ merge_pattern = r'MERGE\s+INTO\s+([a-zA-Z0-9_.]+)'
 trigger_pattern = r'CREATE\s+OR\s+REPLACE\s+TRIGGER\s+([a-zA-Z0-9_]+).*?\s+ON\s+([a-zA-Z0-9_]+)'
 call_pattern = re.compile(r'\bcall\s+([a-zA-Z0-9_.]+)', re.IGNORECASE)
 
-# Function to extract tables from SQL, including handling UNION and subqueries
-def extract_tables_from_sql(sql_content):
+def extract_tables_from_sql(sql_content, depth=0, max_depth=10):
+    if depth > max_depth:
+        return []  # Stop recursion if max depth is reached
+
     objects_and_operations = []
 
     # Remove extra spaces, handle multi-line SQL
@@ -55,10 +57,11 @@ def extract_tables_from_sql(sql_content):
         subqueries = re.findall(r'\(SELECT\s.*?\)', part, re.IGNORECASE | re.DOTALL)
         for subquery in subqueries:
             # Recursively extract tables from subqueries
-            subquery_tables = extract_tables_from_sql(subquery)
+            subquery_tables = extract_tables_from_sql(subquery, depth + 1, max_depth)
             objects_and_operations.extend(subquery_tables)
 
     return objects_and_operations
+
 
 # Function to extract SQL patterns (tables, PLSQL objects) from SQL statements
 def extract_objects_from_sql(sql_content, operation_type=None):
