@@ -34,6 +34,9 @@ def extract_tables_from_sql(sql_content, depth=0, max_depth=10):
     # Remove extra spaces, handle multi-line SQL
     sql_content = re.sub(r'\s+', ' ', sql_content.strip())
 
+   # Remove comments in the form of <!-- xxx -->
+    sql_content = re.sub(r'<!--.*?-->', '', sql_content, flags=re.DOTALL)
+
     # Handle UNION queries by splitting on 'UNION' keyword
     union_parts = re.split(r'\bUNION\b', sql_content, flags=re.IGNORECASE)
 
@@ -55,12 +58,23 @@ def extract_tables_from_sql(sql_content, depth=0, max_depth=10):
                 nested_tables = extract_tables_from_sql(nested_select, depth + 1, max_depth)
                 objects_and_operations.extend(nested_tables)
 
-            # Process remaining tables outside of nested SELECTs
-            remaining_tables = re.sub(r'\(\s*SELECT\s.*?\s*\)', '', from_tables).strip()
+            # Remove everything after (SELECT or ( SELECT
+            remaining_tables = re.sub(r'\s*\(\s*SELECT\s.*?\s*\)', '', from_tables).strip()
+            remaining_tables = re.sub(r'\s*\(\s*SELECT\s.*', '', remaining_tables, flags=re.IGNORECASE)
+
+            # Capture tables from remaining tables
             for table in re.findall(r'([a-zA-Z0-9_.]+)\s*(?:AS\s+)?([a-zA-Z0-9_]+)?', remaining_tables):
                 table_name = table[0]
                 alias = table[1] if table[1] else None
                 objects_and_operations.append((table_name, 'Table', 'select'))
+
+        # Capture INSERT statements if present
+        insert_matches = re.findall(r'INSERT\s+INTO\s+([a-zA-Z0-9_.]+)\s*(?:AS\s+)?([a-zA-Z0-9_]+)?', part, re.IGNORECASE)
+        for match in insert_matches:
+            table_name = match[0]
+            alias = match[1] if match[1] else None
+            objects_and_operations.append((table_name, 'Table', 'insert'))
+
 
         # Handle subqueries that are not part of the FROM clause
         subqueries = re.findall(r'\(SELECT\s.*?\)', part, re.IGNORECASE | re.DOTALL)
