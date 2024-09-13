@@ -1,0 +1,1237 @@
+import os
+import re
+import csv
+from lxml import etree
+
+
+You said:
+Consider below code where the from the input file i will read the url and get the folder name and then iterate to folder and sub folder find the .xml file and check it is ibatis or mybatis and then do the logic to get the table and plsql db objects. I have another code for sql file, need to include those pattern sql pattern
+
+
+import os
+import re
+import csv
+from lxml import etree
+
+# Enhanced regex patterns for extracting tables and PLSQL objects
+def extract_tables_from_sql(sql, operation_type):
+    table_pattern = re.compile(r'\bfrom\s+([a-zA-Z0-9_.]+)', re.IGNORECASE)
+    join_pattern = re.compile(r'\bjoin\s+([a-zA-Z0-9_.]+)', re.IGNORECASE)
+    insert_pattern = re.compile(r'\binsert\s+into\s+([a-zA-Z0-9_.]+)', re.IGNORECASE)
+    update_pattern = re.compile(r'\bupdate\s+([a-zA-Z0-9_.]+)', re.IGNORECASE)
+    delete_pattern = re.compile(r'\bdelete\s+from\s+([a-zA-Z0-9_.]+)', re.IGNORECASE)
+    call_pattern = re.compile(r'\bcall\s+([a-zA-Z0-9_.]+)', re.IGNORECASE)
+    select_key_pattern = re.compile(r'\bselect\s+.*?\s+from\s+([a-zA-Z0-9_.]+)', re.IGNORECASE)
+
+    tables = set()
+    if operation_type.lower() in ['insert', 'update', 'delete']:
+        if operation_type.lower() == 'insert':
+            tables.update(insert_pattern.findall(sql))
+        elif operation_type.lower() == 'update':
+            tables.update(update_pattern.findall(sql))
+        elif operation_type.lower() == 'delete':
+            tables.update(delete_pattern.findall(sql))
+    else:
+        tables.update(table_pattern.findall(sql))
+        tables.update(join_pattern.findall(sql))
+        tables.update(select_key_pattern.findall(sql))
+        # Handle call statements separately
+        tables.update(call_pattern.findall(sql))
+
+    return tables
+
+# Function to extract SQL from CDATA sections and regular tag text
+def extract_sql_from_cdata(xml_fragment):
+    cdata_pattern = re.compile(r'<!\[CDATA\[(.*?)\]\]>', re.DOTALL)
+    return cdata_pattern.findall(xml_fragment)
+
+# Function to remove <include> tags from XML
+def remove_includes(xml_content):
+    include_pattern = re.compile(r'<include.*?>.*?</include>', re.DOTALL)
+    return re.sub(include_pattern, '', xml_content)
+
+# Process the XML mapper file to extract tables and PLSQL objects
+def process_xml_file(file_path):
+    with open(file_path, 'r', encoding='utf-8') as file:
+        xml_content = file.read()
+
+    # Remove <include> tags before processing
+    cleaned_xml_content = remove_includes(xml_content)
+
+    # Convert to bytes to handle encoding declarations
+    xml_content_bytes = cleaned_xml_content.encode('utf-8')
+    tree = etree.fromstring(xml_content_bytes)
+
+    results = []
+
+    # Process <select>, <insert>, <update>, <delete>, and <selectKey> tags
+    for query_tag in tree.xpath('//select | //insert | //update | //delete | //selectKey'):
+        sql_statements = extract_sql_from_cdata(etree.tostring(query_tag, encoding='unicode', pretty_print=True))
+        if not sql_statements:  # If no CDATA, get the tag's text content directly
+            sql_statements = [query_tag.text] if query_tag.text else []
+
+        # Determine the operation type from the tag name
+        tag_name = query_tag.tag.lower()
+        if tag_name == 'selectkey':
+            operation_type = 'selectKey'
+        elif tag_name == 'select':
+            # Special case for callable statements
+            if query_tag.attrib.get('statementType', '').upper() == 'CALLABLE':
+                operation_type = 'PLSQL'
+            else:
+                operation_type = 'Select'
+        elif tag_name == 'insert':
+            operation_type = 'Insert'
+        elif tag_name == 'update':
+            operation_type = 'Update'
+        elif tag_name == 'delete':
+            operation_type = 'Delete'
+        else:
+            operation_type = 'Unknown'
+
+        # Extract tables from the SQL queries
+        for sql in sql_statements:
+            tables = extract_tables_from_sql(sql, operation_type)
+            if operation_type == 'selectKey':
+                for table in tables:
+                    results.append((table, 'db', operation_type))
+            else:
+                for table in tables:
+                    results.append((table, 'Table', operation_type))
+
+    return results
+
+# Function to process folders and extract info from .xml files
+def process_xml_folders(csv_file, output_csv):
+    with open(csv_file, 'r', encoding='utf-8') as file:
+        folder_names = [row[0] for row in csv.reader(file)]
+
+    with open(output_csv, 'w', newline='', encoding='utf-8') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(['FolderName', 'FolderPath', 'FilePath', 'FileName', 'ObjectName', 'ObjectType', 'OperationType'])
+
+        for folder in folder_names:
+            for root, _, files in os.walk(folder):
+                for file_name in files:
+                    if file_name.endswith('.xml'):
+                        file_path = os.path.join(root, file_name)
+                        results = process_xml_file(file_path)
+                        if results:
+                            for object_name, object_type, operation_type in results:
+                                writer.writerow([folder, root, file_path, file_name, object_name, object_type, operation_type])
+
+# Replace with actual CSV paths
+csv_input = 'D:/program/test/file-db.csv'
+csv_output = 'D:/program/test/out-xml.csv'
+
+process_xml_folders(csv_input, csv_output)
+print("XML processing completed. Data saved to", csv_output)
+
+
+
+
+Sql Code is as below:
+
+
+import os
+import re
+import csv
+
+def read_in_chunks(file_object, chunk_size=1048576):  # 1 MB chunk size
+    while True:
+        data = file_object.read(chunk_size)
+        if not data:
+            break
+        yield data
+
+def remove_into_clauses(content):
+    # Pattern to find 'INTO' in SELECT statements and remove them
+    into_pattern = r'SELECT\s+.*?\s+INTO\s+.*?(?=FROM|$)'  # Matches SELECT ... INTO ... FROM
+    content = re.sub(into_pattern, lambda m: m.group(0).split('INTO')[0].strip(), content, flags=re.IGNORECASE)
+    return content
+
+def extract_objects_from_sql(file_path):
+    # Patterns to capture table names for different SQL operations
+    table_pattern = r'\b(?:FROM|JOIN)\s+([a-zA-Z0-9_\.]+)\s*(?:AS\s+)?([a-zA-Z0-9_]+)?(?:\s*,\s*([a-zA-Z0-9_\.]+))*'
+    insert_pattern = r'INSERT\s+INTO\s+([a-zA-Z0-9_\.]+)\s*\('
+    update_pattern = r'UPDATE\s+([a-zA-Z0-9_\.]+)'
+    delete_pattern = r'DELETE\s+FROM\s+([a-zA-Z0-9_\.]+)'
+
+    procedure_pattern = r'CREATE\s+OR\s+REPLACE\s+PROCEDURE\s+([a-zA-Z0-9_]+)\s*\('
+    function_pattern = r'CREATE\s+OR\s+REPLACE\s+FUNCTION\s+([a-zA-Z0-9_]+)\s*\('
+    package_pattern = r'CREATE\s+OR\s+REPLACE\s+PACKAGE\s+([a-zA-Z0-9_\.]+)\s+AS'
+    package_body_pattern = r'CREATE\s+OR\s+REPLACE\s+PACKAGE\s+BODY\s+([a-zA-Z0-9_\.]+)\s+AS'
+    view_pattern = r'CREATE\s+OR\s+REPLACE\s+(?:FORCE\s+)?VIEW\s+([a-zA-Z0-9_\.]+)\s+AS'
+    materialized_view_pattern = r'CREATE\s+MATERIALIZED\s+VIEW\s+([a-zA-Z0-9_]+)'
+    create_pattern = r'CREATE\s+TABLE\s+([a-zA-Z0-9_]+)'
+    alter_pattern = r'ALTER\s+TABLE\s+([a-zA-Z0-9_]+)'
+    drop_package_pattern = r'DROP\s+PACKAGE\s+([a-zA-Z0-9_]+)'
+    drop_function_pattern = r'DROP\s+FUNCTION\s+([a-zA-Z0-9_]+)'
+    drop_procedure_pattern = r'DROP\s+PROCEDURE\s+([a-zA-Z0-9_]+)'
+    drop_trigger_pattern = r'DROP\s+TRIGGER\s+([a-zA-Z0-9_]+)'
+    drop_view_pattern = r'DROP\s+VIEW\s+([a-zA-Z0-9_\.]+)'
+    merge_pattern = r'MERGE\s+INTO\s+([a-zA-Z0-9_.]+)'
+
+    # Updated trigger pattern to capture both trigger name and table name after ON clause
+    trigger_pattern = r'CREATE\s+OR\s+REPLACE\s+TRIGGER\s+([a-zA-Z0-9_]+).*?\s+ON\s+([a-zA-Z0-9_]+)'
+
+    objects_and_operations = []
+    content = []
+
+    with open(file_path, 'r', encoding='utf-8') as file:
+        for chunk in read_in_chunks(file):
+            chunk = re.sub(r'--.*', '', chunk)  # Remove comments
+            chunk = re.sub(r'/\*.*?\*/', '', chunk, flags=re.DOTALL)  # Remove multi-line comments
+            content.append(chunk)
+
+    content = '\n'.join(content)
+    content = remove_into_clauses(content)  # Remove INTO clauses before processing
+
+    # Capture tables with or without aliases and handle comma-separated tables
+    for match in re.findall(table_pattern, content, re.IGNORECASE | re.DOTALL):
+        primary_table = match[0]  # First table
+        alias = match[1] if match[1] else ''  # Alias for first table (optional)
+        secondary_table = match[2] if match[2] else None  # Additional table after a comma
+
+        objects_and_operations.append((primary_table, 'Table', 'select'))  # Operation type defaulted to 'select'
+        if secondary_table:
+            objects_and_operations.append((secondary_table, 'Table', 'select'))
+
+    # Capture INSERT INTO statements
+    for match in re.findall(insert_pattern, content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'Table', 'insert'))
+
+    # Capture UPDATE statements
+    for match in re.findall(update_pattern, content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'Table', 'update'))
+
+    # Capture DELETE statements
+    for match in re.findall(delete_pattern, content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'Table', 'delete'))
+
+    # Capture DDL and DML operations
+    for match in re.findall(create_pattern, content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'Table', 'create'))
+    for match in re.findall(alter_pattern, content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'Table', 'alter'))
+
+    # Capture PLSQL objects
+    for match in re.findall(procedure_pattern, content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'PLSQL', 'create or replace procedure'))
+    for match in re.findall(function_pattern, content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'PLSQL', 'create or replace function'))
+
+    # Capture packages and package bodies with updated patterns
+    # Capture packages and package bodies with schema prefixes
+    for match in re.findall(package_pattern, content, re.IGNORECASE | re.DOTALL):
+        package_name = match
+        objects_and_operations.append((package_name, 'Package', 'create or replace package'))
+    for match in re.findall(package_body_pattern, content, re.IGNORECASE | re.DOTALL):
+        package_body_name = match
+        objects_and_operations.append((package_body_name, 'PackageBody', 'create or replace package body'))
+
+
+    # Capture functions and procedures inside packages
+    function_inside_package_pattern = r'FUNCTION\s+([a-zA-Z0-9_]+)'
+    procedure_inside_package_pattern = r'PROCEDURE\s+([a-zA-Z0-9_]+)'
+    for match in re.findall(function_inside_package_pattern, content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'PLSQL', 'function'))
+    for match in re.findall(procedure_inside_package_pattern, content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'PLSQL', 'procedure'))
+
+    # Capture triggers and the table they affect
+    for match in re.findall(trigger_pattern, content, re.IGNORECASE | re.DOTALL):
+        trigger_name = match[0]
+        table_name = match[1]
+        objects_and_operations.append((trigger_name, 'Trigger', 'create or replace trigger'))
+        objects_and_operations.append((table_name, 'Table', 'trigger'))
+
+    # Capture VIEW and MATERIALIZED VIEW
+    for match in re.findall(view_pattern, content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'View', 'create or replace view'))
+    for match in re.findall(materialized_view_pattern, content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'MaterializedView', 'create materialized view'))
+
+    # Capture DROP operations
+    for match in re.findall(drop_package_pattern, content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'Package', 'drop package'))
+    for match in re.findall(drop_function_pattern, content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'PLSQL', 'drop function'))
+    for match in re.findall(drop_procedure_pattern, content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'PLSQL', 'drop procedure'))
+    for match in re.findall(drop_trigger_pattern, content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'Trigger', 'drop trigger'))
+    for match in re.findall(drop_view_pattern, content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'View', 'drop view'))
+
+    return objects_and_operations
+
+def process_sql_folders(csv_file, output_csv):
+    with open(csv_file, 'r', encoding='utf-8') as file:
+        reader = csv.reader(file)
+        folder_names = [row[0] for row in reader]
+
+    with open(output_csv, 'w', newline='', encoding='utf-8') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(['FolderName', 'FolderPath', 'FilePath', 'FileName', 'ObjectName', 'ObjectType', 'OperationType'])
+
+        for folder in folder_names:
+            for root, _, files in os.walk(folder):
+                for file_name in files:
+                    if file_name.endswith('.sql'):
+                        file_path = os.path.join(root, file_name)
+                        objects_and_operations = extract_objects_from_sql(file_path)
+                        if objects_and_operations:
+                            for object_name, object_type, operation_type in objects_and_operations:
+                                writer.writerow([folder, root, file_path, file_name, object_name, object_type, operation_type])
+
+csv_input = 'D:/program/test/file-db.csv'
+csv_output = 'D:/program/test/out-sql.csv'
+process_sql_folders(csv_input, csv_output)
+print("SQL processing completed. Data saved to", csv_output)
+ChatGPT said:
+ChatGPT
+To merge both the XML and SQL file processing logic, you can extend your current XML processing code to include SQL processing and handle both file types (.xml and .sql) in a unified workflow. Here’s how you can integrate both processes:
+
+Refactor the folder iteration logic to handle both .xml and .sql files.
+Combine the results from both the XML and SQL file processing into a single output CSV.
+Here is the merged code:
+
+python
+Copy code
+import os
+import re
+import csv
+from lxml import etree
+
+# Extract tables from SQL logic
+def extract_tables_from_sql(sql, operation_type):
+    table_pattern = re.compile(r'\bfrom\s+([a-zA-Z0-9_.]+)', re.IGNORECASE)
+    join_pattern = re.compile(r'\bjoin\s+([a-zA-Z0-9_.]+)', re.IGNORECASE)
+    insert_pattern = re.compile(r'\binsert\s+into\s+([a-zA-Z0-9_.]+)', re.IGNORECASE)
+    update_pattern = re.compile(r'\bupdate\s+([a-zA-Z0-9_.]+)', re.IGNORECASE)
+    delete_pattern = re.compile(r'\bdelete\s+from\s+([a-zA-Z0-9_.]+)', re.IGNORECASE)
+    call_pattern = re.compile(r'\bcall\s+([a-zA-Z0-9_.]+)', re.IGNORECASE)
+    select_key_pattern = re.compile(r'\bselect\s+.*?\s+from\s+([a-zA-Z0-9_.]+)', re.IGNORECASE)
+
+    tables = set()
+    if operation_type.lower() in ['insert', 'update', 'delete']:
+        if operation_type.lower() == 'insert':
+            tables.update(insert_pattern.findall(sql))
+        elif operation_type.lower() == 'update':
+            tables.update(update_pattern.findall(sql))
+        elif operation_type.lower() == 'delete':
+            tables.update(delete_pattern.findall(sql))
+    else:
+        tables.update(table_pattern.findall(sql))
+        tables.update(join_pattern.findall(sql))
+        tables.update(select_key_pattern.findall(sql))
+        tables.update(call_pattern.findall(sql))
+
+    return tables
+
+# Extract SQL from CDATA sections in XML
+def extract_sql_from_cdata(xml_fragment):
+    cdata_pattern = re.compile(r'<!\[CDATA\[(.*?)\]\]>', re.DOTALL)
+    return cdata_pattern.findall(xml_fragment)
+
+# Remove <include> tags from XML
+def remove_includes(xml_content):
+    include_pattern = re.compile(r'<include.*?>.*?</include>', re.DOTALL)
+    return re.sub(include_pattern, '', xml_content)
+
+# Process XML file to extract tables and PLSQL objects
+def process_xml_file(file_path):
+    with open(file_path, 'r', encoding='utf-8') as file:
+        xml_content = file.read()
+
+    cleaned_xml_content = remove_includes(xml_content)
+    xml_content_bytes = cleaned_xml_content.encode('utf-8')
+    tree = etree.fromstring(xml_content_bytes)
+
+    results = []
+    for query_tag in tree.xpath('//select | //insert | //update | //delete | //selectKey'):
+        sql_statements = extract_sql_from_cdata(etree.tostring(query_tag, encoding='unicode', pretty_print=True))
+        if not sql_statements:
+            sql_statements = [query_tag.text] if query_tag.text else []
+
+        tag_name = query_tag.tag.lower()
+        if tag_name == 'selectkey':
+            operation_type = 'selectKey'
+        elif tag_name == 'select':
+            operation_type = 'Select'
+        elif tag_name == 'insert':
+            operation_type = 'Insert'
+        elif tag_name == 'update':
+            operation_type = 'Update'
+        elif tag_name == 'delete':
+            operation_type = 'Delete'
+        else:
+            operation_type = 'Unknown'
+
+        for sql in sql_statements:
+            tables = extract_tables_from_sql(sql, operation_type)
+            for table in tables:
+                if operation_type == 'selectKey':
+                    results.append((table, 'db', operation_type))
+                else:
+                    results.append((table, 'Table', operation_type))
+
+    return results
+
+# Process SQL file to extract objects and operations
+def extract_objects_from_sql(file_path):
+    table_pattern = r'\b(?:FROM|JOIN)\s+([a-zA-Z0-9_\.]+)\s*(?:AS\s+)?([a-zA-Z0-9_]+)?(?:\s*,\s*([a-zA-Z0-9_\.]+))*'
+    insert_pattern = r'INSERT\s+INTO\s+([a-zA-Z0-9_\.]+)\s*\('
+    update_pattern = r'UPDATE\s+([a-zA-Z0-9_\.]+)'
+    delete_pattern = r'DELETE\s+FROM\s+([a-zA-Z0-9_\.]+)'
+    # Add more patterns as needed, similar to your original SQL pattern
+
+    objects_and_operations = []
+    with open(file_path, 'r', encoding='utf-8') as file:
+        content = file.read()
+
+    content = re.sub(r'--.*', '', content)
+    content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+
+    # Capture table-related operations
+    for match in re.findall(table_pattern, content, re.IGNORECASE | re.DOTALL):
+        primary_table = match[0]
+        alias = match[1] if match[1] else ''
+        secondary_table = match[2] if match[2] else None
+        objects_and_operations.append((primary_table, 'Table', 'select'))
+        if secondary_table:
+            objects_and_operations.append((secondary_table, 'Table', 'select'))
+
+    # Add more patterns like insert, update, delete as needed
+    return objects_and_operations
+
+# Unified function to process folders for both XML and SQL files
+def process_folders(csv_file, output_csv):
+    with open(csv_file, 'r', encoding='utf-8') as file:
+        folder_names = [row[0] for row in csv.reader(file)]
+
+    with open(output_csv, 'w', newline='', encoding='utf-8') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(['FolderName', 'FolderPath', 'FilePath', 'FileName', 'ObjectName', 'ObjectType', 'OperationType'])
+
+        for folder in folder_names:
+            for root, _, files in os.walk(folder):
+                for file_name in files:
+                    file_path = os.path.join(root, file_name)
+                    
+                    # Process XML files
+                    if file_name.endswith('.xml'):
+                        results = process_xml_file(file_path)
+                        for object_name, object_type, operation_type in results:
+                            writer.writerow([folder, root, file_path, file_name, object_name, object_type, operation_type])
+                    
+                    # Process SQL files
+                    elif file_name.endswith('.sql'):
+                        results = extract_objects_from_sql(file_path)
+                        for object_name, object_type, operation_type in results:
+                            writer.writerow([folder, root, file_path, file_name, object_name, object_type, operation_type])
+
+# Replace with actual CSV paths
+csv_input = 'D:/program/test/file-db.csv'
+csv_output = 'D:/program/test/out-data.csv'
+
+process_folders(csv_input, csv_output)
+print("Processing completed. Data saved to", csv_output)
+Explanation of Changes:
+File Type Handling: The function process_folders now checks if a file is .xml or .sql and routes it to the appropriate processing function.
+CSV Output: Both XML and SQL file processing results are written to the same CSV file, keeping the same format.
+Regex and Logic: Both the XML and SQL processing functions work as before, but now they can handle both file types in one execution.
+This will allow you to extract the required database tables and PL/SQL objects from both XML and SQL files in a single unified process.
+
+
+
+
+
+
+You said:
+no i don't want to combine it, i want to logic of sql pattern to be include in the xml file for find the sql pattern
+ChatGPT said:
+ChatGPT
+To include the SQL pattern logic from your SQL code into the XML processing part, we need to adjust the process_xml_file function. The goal is to find and match SQL patterns (such as tables and PLSQL objects) inside the XML file's SQL queries, just as you do with .sql files.
+
+Key steps to integrate:
+Extract SQL patterns: Reuse the SQL extraction logic from the SQL processing code inside the XML processing function.
+Extend the table and object extraction: Modify the logic that extracts SQL from XML <select>, <insert>, etc., and apply the SQL pattern matching to this content.
+Here is how you can modify your XML logic to include the SQL pattern matching:
+
+Updated Code for XML Processing with SQL Pattern Matching:
+python
+Copy code
+import os
+import re
+import csv
+from lxml import etree
+
+# Enhanced regex patterns from the SQL processing
+table_pattern = r'\b(?:FROM|JOIN)\s+([a-zA-Z0-9_\.]+)\s*(?:AS\s+)?([a-zA-Z0-9_]+)?(?:\s*,\s*([a-zA-Z0-9_\.]+))*'
+insert_pattern = r'INSERT\s+INTO\s+([a-zA-Z0-9_\.]+)\s*\('
+update_pattern = r'UPDATE\s+([a-zA-Z0-9_\.]+)'
+delete_pattern = r'DELETE\s+FROM\s+([a-zA-Z0-9_\.]+)'
+procedure_pattern = r'CREATE\s+OR\s+REPLACE\s+PROCEDURE\s+([a-zA-Z0-9_]+)\s*\('
+function_pattern = r'CREATE\s+OR\s+REPLACE\s+FUNCTION\s+([a-zA-Z0-9_]+)\s*\('
+package_pattern = r'CREATE\s+OR\s+REPLACE\s+PACKAGE\s+([a-zA-Z0-9_\.]+)\s+AS'
+view_pattern = r'CREATE\s+OR\s+REPLACE\s+VIEW\s+([a-zA-Z0-9_\.]+)\s+AS'
+merge_pattern = r'MERGE\s+INTO\s+([a-zA-Z0-9_.]+)'
+trigger_pattern = r'CREATE\s+OR\s+REPLACE\s+TRIGGER\s+([a-zA-Z0-9_]+).*?\s+ON\s+([a-zA-Z0-9_]+)'
+
+# Function to extract SQL patterns (tables, PLSQL objects) from SQL statements
+def extract_objects_from_sql(sql_content):
+    objects_and_operations = []
+
+    # Capture tables from various SQL operations
+    for match in re.findall(table_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        primary_table = match[0]
+        secondary_table = match[2] if match[2] else None
+        objects_and_operations.append((primary_table, 'Table', 'select'))
+        if secondary_table:
+            objects_and_operations.append((secondary_table, 'Table', 'select'))
+
+    # Capture INSERT, UPDATE, DELETE
+    for match in re.findall(insert_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'Table', 'insert'))
+    for match in re.findall(update_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'Table', 'update'))
+    for match in re.findall(delete_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'Table', 'delete'))
+
+    # Capture PLSQL objects (procedures, functions, etc.)
+    for match in re.findall(procedure_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'PLSQL', 'create or replace procedure'))
+    for match in re.findall(function_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'PLSQL', 'create or replace function'))
+    for match in re.findall(package_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'Package', 'create or replace package'))
+    for match in re.findall(view_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'View', 'create or replace view'))
+    for match in re.findall(trigger_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match[0], 'Trigger', 'create or replace trigger'))
+        objects_and_operations.append((match[1], 'Table', 'trigger'))
+
+    return objects_and_operations
+
+# Function to remove <include> tags from XML
+def remove_includes(xml_content):
+    include_pattern = re.compile(r'<include.*?>.*?</include>', re.DOTALL)
+    return re.sub(include_pattern, '', xml_content)
+
+# Process the XML mapper file to extract tables and PLSQL objects using SQL pattern matching
+def process_xml_file(file_path):
+    with open(file_path, 'r', encoding='utf-8') as file:
+        xml_content = file.read()
+
+    # Remove <include> tags before processing
+    cleaned_xml_content = remove_includes(xml_content)
+
+    # Convert to bytes to handle encoding declarations
+    xml_content_bytes = cleaned_xml_content.encode('utf-8')
+    tree = etree.fromstring(xml_content_bytes)
+
+    results = []
+
+    # Process <select>, <insert>, <update>, <delete>, and <selectKey> tags
+    for query_tag in tree.xpath('//select | //insert | //update | //delete | //selectKey'):
+        sql_statements = extract_sql_from_cdata(etree.tostring(query_tag, encoding='unicode', pretty_print=True))
+        if not sql_statements:  # If no CDATA, get the tag's text content directly
+            sql_statements = [query_tag.text] if query_tag.text else []
+
+        # Apply SQL pattern matching to each SQL statement found
+        for sql in sql_statements:
+            objects = extract_objects_from_sql(sql)
+            results.extend(objects)
+
+    return results
+
+# Function to process folders and extract info from .xml files with SQL patterns included
+def process_xml_folders(csv_file, output_csv):
+    with open(csv_file, 'r', encoding='utf-8') as file:
+        folder_names = [row[0] for row in csv.reader(file)]
+
+    with open(output_csv, 'w', newline='', encoding='utf-8') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(['FolderName', 'FolderPath', 'FilePath', 'FileName', 'ObjectName', 'ObjectType', 'OperationType'])
+
+        for folder in folder_names:
+            for root, _, files in os.walk(folder):
+                for file_name in files:
+                    if file_name.endswith('.xml'):
+                        file_path = os.path.join(root, file_name)
+                        results = process_xml_file(file_path)
+                        if results:
+                            for object_name, object_type, operation_type in results:
+                                writer.writerow([folder, root, file_path, file_name, object_name, object_type, operation_type])
+
+# Replace with actual CSV paths
+csv_input = 'D:/program/test/file-db.csv'
+csv_output = 'D:/program/test/out-xml.csv'
+
+process_xml_folders(csv_input, csv_output)
+print("XML processing completed. Data saved to", csv_output)
+Key Changes:
+SQL Pattern Matching in XML: The function extract_objects_from_sql is added inside the process_xml_file function. It applies the SQL pattern matching to any SQL found in XML files.
+Processing SQL Queries in XML: For each SQL block found (using <select>, <insert>, etc.), the patterns (tables, PLSQL objects) are extracted.
+This approach allows you to parse XML files, extract SQL queries, and apply the same SQL pattern extraction logic as in .sql files.
+
+
+
+
+
+
+You said:
+why these  pattern got removed
+
+ call_pattern = re.compile(r'\bcall\s+([a-zA-Z0-9_.]+)', re.IGNORECASE)
+    select_key_pattern = re.compile(r'\bselect\s+.*?\s+from\s+([a-zA-Z0-9_.]+)', re.IGNORECASE)
+
+  
+why the below condition got removed
+
+   # Special case for callable statements
+            if query_tag.attrib.get('statementType', '').upper() == 'CALLABLE':
+                operation_type = 'PLSQL'
+            else:
+                operation_type = 'Select'
+
+ # Extract tables from the SQL queries
+        for sql in sql_statements:
+            tables = extract_tables_from_sql(sql, operation_type)
+            if operation_type == 'selectKey':
+                for table in tables:
+                    results.append((table, 'db', operation_type))
+            else:
+                for table in tables:
+                    results.append((table, 'Table', operation_type))
+ChatGPT said:
+ChatGPT
+It looks like some of the patterns and conditions were removed in my previous response unintentionally. Here's an explanation for each:
+
+1. Why call_pattern and select_key_pattern were removed:
+call_pattern: This regex is used to capture SQL CALL statements for stored procedures. Since this is important for extracting PLSQL procedure calls, it should not have been removed.
+select_key_pattern: This pattern is specifically used to capture the SELECT statement and associated table in a selectKey element of XML files. It was mistakenly omitted but is necessary for completeness.
+2. Why the special condition for CALLABLE was removed:
+The condition for detecting CALLABLE statements (i.e., when the XML's SQL operation is a stored procedure call) is crucial because it's part of how you determine whether a SQL query is a stored procedure execution. This should be preserved.
+
+3. Why the logic for selectKey handling and extract_tables_from_sql was removed:
+The condition for operation_type == 'selectKey' and the special handling for tables under the selectKey XML tag were removed inadvertently. These are needed to ensure that the correct operation type and object type (e.g., 'db', 'Table') are applied for selectKey elements in the XML.
+Here's the corrected code that reintroduces those patterns and conditions:
+python
+Copy code
+import os
+import re
+import csv
+from lxml import etree
+
+# Enhanced regex patterns from the SQL processing
+table_pattern = r'\b(?:FROM|JOIN)\s+([a-zA-Z0-9_\.]+)\s*(?:AS\s+)?([a-zA-Z0-9_]+)?(?:\s*,\s*([a-zA-Z0-9_\.]+))*'
+insert_pattern = r'INSERT\s+INTO\s+([a-zA-Z0-9_\.]+)\s*\('
+update_pattern = r'UPDATE\s+([a-zA-Z0-9_\.]+)'
+delete_pattern = r'DELETE\s+FROM\s+([a-zA-Z0-9_\.]+)'
+procedure_pattern = r'CREATE\s+OR\s+REPLACE\s+PROCEDURE\s+([a-zA-Z0-9_]+)\s*\('
+function_pattern = r'CREATE\s+OR\s+REPLACE\s+FUNCTION\s+([a-zA-Z0-9_]+)\s*\('
+package_pattern = r'CREATE\s+OR\s+REPLACE\s+PACKAGE\s+([a-zA-Z0-9_\.]+)\s+AS'
+view_pattern = r'CREATE\s+OR\s+REPLACE\s+VIEW\s+([a-zA-Z0-9_\.]+)\s+AS'
+merge_pattern = r'MERGE\s+INTO\s+([a-zA-Z0-9_.]+)'
+trigger_pattern = r'CREATE\s+OR\s+REPLACE\s+TRIGGER\s+([a-zA-Z0-9_]+).*?\s+ON\s+([a-zA-Z0-9_]+)'
+call_pattern = re.compile(r'\bcall\s+([a-zA-Z0-9_.]+)', re.IGNORECASE)
+select_key_pattern = re.compile(r'\bselect\s+.*?\s+from\s+([a-zA-Z0-9_.]+)', re.IGNORECASE)
+
+# Function to extract SQL patterns (tables, PLSQL objects) from SQL statements
+def extract_objects_from_sql(sql_content, operation_type=None):
+    objects_and_operations = []
+
+    # Capture tables from various SQL operations
+    for match in re.findall(table_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        primary_table = match[0]
+        secondary_table = match[2] if match[2] else None
+        objects_and_operations.append((primary_table, 'Table', operation_type or 'select'))
+        if secondary_table:
+            objects_and_operations.append((secondary_table, 'Table', operation_type or 'select'))
+
+    # Capture INSERT, UPDATE, DELETE
+    for match in re.findall(insert_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'Table', 'insert'))
+    for match in re.findall(update_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'Table', 'update'))
+    for match in re.findall(delete_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'Table', 'delete'))
+
+    # Capture PLSQL objects (procedures, functions, etc.)
+    for match in re.findall(procedure_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'PLSQL', 'create or replace procedure'))
+    for match in re.findall(function_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'PLSQL', 'create or replace function'))
+    for match in re.findall(package_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'Package', 'create or replace package'))
+    for match in re.findall(view_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'View', 'create or replace view'))
+    for match in re.findall(trigger_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match[0], 'Trigger', 'create or replace trigger'))
+        objects_and_operations.append((match[1], 'Table', 'trigger'))
+
+    # Capture CALLABLE statements
+    for match in re.findall(call_pattern, sql_content):
+        objects_and_operations.append((match, 'PLSQL', 'call'))
+
+    return objects_and_operations
+
+# Function to remove <include> tags from XML
+def remove_includes(xml_content):
+    include_pattern = re.compile(r'<include.*?>.*?</include>', re.DOTALL)
+    return re.sub(include_pattern, '', xml_content)
+
+# Process the XML mapper file to extract tables and PLSQL objects using SQL pattern matching
+def process_xml_file(file_path):
+    with open(file_path, 'r', encoding='utf-8') as file:
+        xml_content = file.read()
+
+    # Remove <include> tags before processing
+    cleaned_xml_content = remove_includes(xml_content)
+
+    # Convert to bytes to handle encoding declarations
+    xml_content_bytes = cleaned_xml_content.encode('utf-8')
+    tree = etree.fromstring(xml_content_bytes)
+
+    results = []
+
+    # Process <select>, <insert>, <update>, <delete>, and <selectKey> tags
+    for query_tag in tree.xpath('//select | //insert | //update | //delete | //selectKey'):
+        sql_statements = extract_sql_from_cdata(etree.tostring(query_tag, encoding='unicode', pretty_print=True))
+        if not sql_statements:  # If no CDATA, get the tag's text content directly
+            sql_statements = [query_tag.text] if query_tag.text else []
+
+        # Special case for callable statements
+        if query_tag.attrib.get('statementType', '').upper() == 'CALLABLE':
+            operation_type = 'PLSQL'
+        else:
+            operation_type = 'Select' if query_tag.tag == 'select' else query_tag.tag
+
+        # Apply SQL pattern matching to each SQL statement found
+        for sql in sql_statements:
+            objects = extract_objects_from_sql(sql, operation_type)
+            results.extend(objects)
+
+    return results
+
+# Function to process folders and extract info from .xml files with SQL patterns included
+def process_xml_folders(csv_file, output_csv):
+    with open(csv_file, 'r', encoding='utf-8') as file:
+        folder_names = [row[0] for row in csv.reader(file)]
+
+    with open(output_csv, 'w', newline='', encoding='utf-8') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(['FolderName', 'FolderPath', 'FilePath', 'FileName', 'ObjectName', 'ObjectType', 'OperationType'])
+
+        for folder in folder_names:
+            for root, _, files in os.walk(folder):
+                for file_name in files:
+                    if file_name.endswith('.xml'):
+                        file_path = os.path.join(root, file_name)
+                        results = process_xml_file(file_path)
+                        if results:
+                            for object_name, object_type, operation_type in results:
+                                writer.writerow([folder, root, file_path, file_name, object_name, object_type, operation_type])
+
+# Replace with actual CSV paths
+csv_input = 'D:/program/test/file-db.csv'
+csv_output = 'D:/program/test/out-xml.csv'
+
+process_xml_folders(csv_input, csv_output)
+print("XML processing completed. Data saved to", csv_output)
+Changes Reintroduced:
+call_pattern: Now used to extract CALL statements for stored procedures.
+select_key_pattern: Used to handle SQL queries within selectKey elements.
+Special case for CALLABLE: The logic checks if the SQL operation in the XML is a CALLABLE stored procedure and adjusts the operation_type to PLSQL.
+Handling selectKey and operation type: The correct operation_type is passed into extract_objects_from_sql to differentiate between selectKey, CALLABLE, select, insert, etc.
+With these reintroductions, the processing will cover both SQL patterns and the special cases
+
+
+
+
+
+
+You said:
+getting     sql_statements = extract_sql_from_cdata(etree.tostring(query_tag, encoding='unicode', pretty_print=True))
+                     ^^^^^^^^^^^^^^^^^^^^^^
+NameError: name 'extract_sql_from_cdata' is not defined
+ChatGPT said:
+ChatGPT
+The error is happening because the function extract_sql_from_cdata was referenced, but it hasn't been defined yet in the code. You need a function to extract SQL from the CDATA sections (or any content) inside the XML.
+
+Here's a simple implementation of the extract_sql_from_cdata function that looks for SQL inside CDATA or text content in the XML:
+
+Add the following function to your code:
+python
+Copy code
+# Function to extract SQL from CDATA content within XML
+def extract_sql_from_cdata(xml_string):
+    # Check for CDATA in the XML string
+    cdata_pattern = re.compile(r'<!\[CDATA\[(.*?)\]\]>', re.DOTALL)
+    matches = cdata_pattern.findall(xml_string)
+    
+    if matches:
+        # Return all CDATA content as SQL statements
+        return matches
+    else:
+        # If no CDATA, just return the text content as a fallback
+        return [xml_string]
+Explanation:
+CDATA extraction: The function looks for <![CDATA[ ... ]]> sections in the XML and extracts the content inside. This is useful because many SQL statements are often wrapped in CDATA in XML files.
+Fallback to plain text: If no CDATA is found, the function will just return the raw XML string, which could also contain SQL.
+Full integration with the previous code:
+python
+Copy code
+import os
+import re
+import csv
+from lxml import etree
+
+# Function to extract SQL from CDATA content within XML
+def extract_sql_from_cdata(xml_string):
+    # Check for CDATA in the XML string
+    cdata_pattern = re.compile(r'<!\[CDATA\[(.*?)\]\]>', re.DOTALL)
+    matches = cdata_pattern.findall(xml_string)
+    
+    if matches:
+        # Return all CDATA content as SQL statements
+        return matches
+    else:
+        # If no CDATA, just return the text content as a fallback
+        return [xml_string]
+
+# Enhanced regex patterns from the SQL processing
+table_pattern = r'\b(?:FROM|JOIN)\s+([a-zA-Z0-9_\.]+)\s*(?:AS\s+)?([a-zA-Z0-9_]+)?(?:\s*,\s*([a-zA-Z0-9_\.]+))*'
+insert_pattern = r'INSERT\s+INTO\s+([a-zA-Z0-9_\.]+)\s*\('
+update_pattern = r'UPDATE\s+([a-zA-Z0-9_\.]+)'
+delete_pattern = r'DELETE\s+FROM\s+([a-zA-Z0-9_\.]+)'
+procedure_pattern = r'CREATE\s+OR\s+REPLACE\s+PROCEDURE\s+([a-zA-Z0-9_]+)\s*\('
+function_pattern = r'CREATE\s+OR\s+REPLACE\s+FUNCTION\s+([a-zA-Z0-9_]+)\s*\('
+package_pattern = r'CREATE\s+OR\s+REPLACE\s+PACKAGE\s+([a-zA-Z0-9_\.]+)\s+AS'
+view_pattern = r'CREATE\s+OR\s+REPLACE\s+VIEW\s+([a-zA-Z0-9_\.]+)\s+AS'
+merge_pattern = r'MERGE\s+INTO\s+([a-zA-Z0-9_.]+)'
+trigger_pattern = r'CREATE\s+OR\s+REPLACE\s+TRIGGER\s+([a-zA-Z0-9_]+).*?\s+ON\s+([a-zA-Z0-9_]+)'
+call_pattern = re.compile(r'\bcall\s+([a-zA-Z0-9_.]+)', re.IGNORECASE)
+select_key_pattern = re.compile(r'\bselect\s+.*?\s+from\s+([a-zA-Z0-9_.]+)', re.IGNORECASE)
+
+# Function to extract SQL patterns (tables, PLSQL objects) from SQL statements
+def extract_objects_from_sql(sql_content, operation_type=None):
+    objects_and_operations = []
+
+    # Capture tables from various SQL operations
+    for match in re.findall(table_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        primary_table = match[0]
+        secondary_table = match[2] if match[2] else None
+        objects_and_operations.append((primary_table, 'Table', operation_type or 'select'))
+        if secondary_table:
+            objects_and_operations.append((secondary_table, 'Table', operation_type or 'select'))
+
+    # Capture INSERT, UPDATE, DELETE
+    for match in re.findall(insert_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'Table', 'insert'))
+    for match in re.findall(update_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'Table', 'update'))
+    for match in re.findall(delete_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'Table', 'delete'))
+
+    # Capture PLSQL objects (procedures, functions, etc.)
+    for match in re.findall(procedure_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'PLSQL', 'create or replace procedure'))
+    for match in re.findall(function_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'PLSQL', 'create or replace function'))
+    for match in re.findall(package_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'Package', 'create or replace package'))
+    for match in re.findall(view_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'View', 'create or replace view'))
+    for match in re.findall(trigger_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match[0], 'Trigger', 'create or replace trigger'))
+        objects_and_operations.append((match[1], 'Table', 'trigger'))
+
+    # Capture CALLABLE statements
+    for match in re.findall(call_pattern, sql_content):
+        objects_and_operations.append((match, 'PLSQL', 'call'))
+
+    return objects_and_operations
+
+# Function to remove <include> tags from XML
+def remove_includes(xml_content):
+    include_pattern = re.compile(r'<include.*?>.*?</include>', re.DOTALL)
+    return re.sub(include_pattern, '', xml_content)
+
+# Process the XML mapper file to extract tables and PLSQL objects using SQL pattern matching
+def process_xml_file(file_path):
+    with open(file_path, 'r', encoding='utf-8') as file:
+        xml_content = file.read()
+
+    # Remove <include> tags before processing
+    cleaned_xml_content = remove_includes(xml_content)
+
+    # Convert to bytes to handle encoding declarations
+    xml_content_bytes = cleaned_xml_content.encode('utf-8')
+    tree = etree.fromstring(xml_content_bytes)
+
+    results = []
+
+    # Process <select>, <insert>, <update>, <delete>, and <selectKey> tags
+    for query_tag in tree.xpath('//select | //insert | //update | //delete | //selectKey'):
+        sql_statements = extract_sql_from_cdata(etree.tostring(query_tag, encoding='unicode', pretty_print=True))
+        if not sql_statements:  # If no CDATA, get the tag's text content directly
+            sql_statements = [query_tag.text] if query_tag.text else []
+
+        # Special case for callable statements
+        if query_tag.attrib.get('statementType', '').upper() == 'CALLABLE':
+            operation_type = 'PLSQL'
+        else:
+            operation_type = 'Select' if query_tag.tag == 'select' else query_tag.tag
+
+        # Apply SQL pattern matching to each SQL statement found
+        for sql in sql_statements:
+            objects = extract_objects_from_sql(sql, operation_type)
+            results.extend(objects)
+
+    return results
+
+# Function to process folders and extract info from .xml files with SQL patterns included
+def process_xml_folders(csv_file, output_csv):
+    with open(csv_file, 'r', encoding='utf-8') as file:
+        folder_names = [row[0] for row in csv.reader(file)]
+
+    with open(output_csv, 'w', newline='', encoding='utf-8') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(['FolderName', 'FolderPath', 'FilePath', 'FileName', 'ObjectName', 'ObjectType', 'OperationType'])
+
+        for folder in folder_names:
+            for root, _, files in os.walk(folder):
+                for file_name in files:
+                    if file_name.endswith('.xml'):
+                        file_path = os.path.join(root, file_name)
+                        results = process_xml_file(file_path)
+                        if results:
+                            for object_name, object_type, operation_type in results:
+                                writer.writerow([folder, root, file_path, file_name, object_name, object_type, operation_type])
+
+# Replace with actual CSV paths
+csv_input = 'D:/program/test/file-db.csv'
+csv_output = 'D:/program/test/out-xml.csv'
+
+process_xml_folders(csv_input, csv_output)
+print("XML processing completed. Data saved to", csv_output)
+Key Fix:
+The function extract_sql_from_cdata is now defined and used to extract the SQL content from within CDATA sections of the XML. This should prevent the NameError from occurring.
+Let me know if you need further adjustments!
+
+
+
+
+
+
+You said:
+The below code is giving the column and where clause as well. Kindly analysis better and give me the solution, Suggestion would be you can check after from and join clause  take all the tables till where clause is used, table will be separated by comma(,) in comma separated part check whether is space or tab if present considered second as alias, ignore alias, capture  only table 
+
+
+
+import os
+import re
+import csv
+from lxml import etree
+
+# Function to extract SQL from CDATA content within XML
+def extract_sql_from_cdata(xml_string):
+    # Check for CDATA in the XML string
+    cdata_pattern = re.compile(r'<!\[CDATA\[(.*?)\]\]>', re.DOTALL)
+    matches = cdata_pattern.findall(xml_string)
+    
+    if matches:
+        # Return all CDATA content as SQL statements
+        return matches
+    else:
+        # If no CDATA, just return the text content as a fallback
+        return [xml_string]
+
+# Enhanced regex patterns from the SQL processing
+# Improved regex pattern to capture table names with optional schema names in SELECT statements with UNION
+table_pattern = r'\b(?:FROM|JOIN|,)\s+([a-zA-Z0-9_.]+)'
+insert_pattern = r'INSERT\s+INTO\s+([a-zA-Z0-9_.]+)'
+update_pattern = r'UPDATE\s+([a-zA-Z0-9_.]+)'
+delete_pattern = r'DELETE\s+FROM\s+([a-zA-Z0-9_.]+)'
+procedure_pattern = r'CREATE\s+OR\s+REPLACE\s+PROCEDURE\s+([a-zA-Z0-9_]+)\s*\('
+function_pattern = r'CREATE\s+OR\s+REPLACE\s+FUNCTION\s+([a-zA-Z0-9_]+)\s*\('
+package_pattern = r'CREATE\s+OR\s+REPLACE\s+PACKAGE\s+([a-zA-Z0-9_.]+)\s+AS'
+view_pattern = r'CREATE\s+OR\s+REPLACE\s+VIEW\s+([a-zA-Z0-9_.]+)\s+AS'
+merge_pattern = r'MERGE\s+INTO\s+([a-zA-Z0-9_.]+)'
+trigger_pattern = r'CREATE\s+OR\s+REPLACE\s+TRIGGER\s+([a-zA-Z0-9_]+).*?\s+ON\s+([a-zA-Z0-9_]+)'
+call_pattern = re.compile(r'\bcall\s+([a-zA-Z0-9_.]+)', re.IGNORECASE)
+select_key_pattern = re.compile(r'\bselect\s+.*?\s+from\s+([a-zA-Z0-9_.]+)', re.IGNORECASE)
+
+# Function to extract SQL patterns (tables, PLSQL objects) from SQL statements
+def extract_objects_from_sql(sql_content, operation_type=None):
+    objects_and_operations = []
+
+    # Capture tables from various SQL operations
+    for match in re.findall(table_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        if match:
+            objects_and_operations.append((match, 'Table', operation_type or 'select'))
+
+    # Capture INSERT, UPDATE, DELETE
+    for match in re.findall(insert_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'Table', 'insert'))
+    for match in re.findall(update_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'Table', 'update'))
+    for match in re.findall(delete_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'Table', 'delete'))
+
+    # Capture PLSQL objects (procedures, functions, etc.)
+    for match in re.findall(procedure_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'PLSQL', 'create or replace procedure'))
+    for match in re.findall(function_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'PLSQL', 'create or replace function'))
+    for match in re.findall(package_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'Package', 'create or replace package'))
+    for match in re.findall(view_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'View', 'create or replace view'))
+    for match in re.findall(trigger_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match[0], 'Trigger', 'create or replace trigger'))
+        objects_and_operations.append((match[1], 'Table', 'trigger'))
+
+    # Capture CALLABLE statements
+    for match in re.findall(call_pattern, sql_content):
+        objects_and_operations.append((match, 'PLSQL', 'call'))
+
+    return objects_and_operations
+
+# Function to remove <include> tags from XML
+def remove_includes(xml_content):
+    include_pattern = re.compile(r'<include.*?>.*?</include>', re.DOTALL)
+    return re.sub(include_pattern, '', xml_content)
+
+# Process the XML mapper file to extract tables and PLSQL objects using SQL pattern matching
+def process_xml_file(file_path):
+    with open(file_path, 'r', encoding='utf-8') as file:
+        xml_content = file.read()
+
+    # Remove <include> tags before processing
+    cleaned_xml_content = remove_includes(xml_content)
+
+    # Convert to bytes to handle encoding declarations
+    xml_content_bytes = cleaned_xml_content.encode('utf-8')
+    tree = etree.fromstring(xml_content_bytes)
+
+    results = []
+
+    # Process <select>, <insert>, <update>, <delete>, and <selectKey> tags
+    for query_tag in tree.xpath('//select | //insert | //update | //delete | //selectKey'):
+        sql_statements = extract_sql_from_cdata(etree.tostring(query_tag, encoding='unicode', pretty_print=True))
+        if not sql_statements:  # If no CDATA, get the tag's text content directly
+            sql_statements = [query_tag.text] if query_tag.text else []
+
+        # Special case for callable statements
+        if query_tag.attrib.get('statementType', '').upper() == 'CALLABLE':
+            operation_type = 'PLSQL'
+        else:
+            operation_type = 'Select' if query_tag.tag == 'select' else query_tag.tag
+
+        # Apply SQL pattern matching to each SQL statement found
+        for sql in sql_statements:
+            objects = extract_objects_from_sql(sql, operation_type)
+            results.extend(objects)
+
+    return results
+
+# Function to process folders and extract info from .xml files with SQL patterns included
+def process_xml_folders(csv_file, output_csv):
+    with open(csv_file, 'r', encoding='utf-8') as file:
+        folder_names = [row[0] for row in csv.reader(file)]
+
+    with open(output_csv, 'w', newline='', encoding='utf-8') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(['FolderName', 'FolderPath', 'FilePath', 'FileName', 'ObjectName', 'ObjectType', 'OperationType'])
+
+        for folder in folder_names:
+            for root, _, files in os.walk(folder):
+                for file_name in files:
+                    if file_name.endswith('.xml'):
+                        file_path = os.path.join(root, file_name)
+                        results = process_xml_file(file_path)
+                        if results:
+                            for object_name, object_type, operation_type in results:
+                                writer.writerow([folder, root, file_path, file_name, object_name, object_type, operation_type])
+
+# Replace with actual CSV paths
+csv_input = 'D:/program/test/file-db.csv'
+csv_output = 'D:/program/test/ddout-xml-rep.csv'
+
+process_xml_folders(csv_input, csv_output)
+print("XML processing completed. Data saved to", csv_output)
+ChatGPT said:
+ChatGPT
+The current logic extracts table names but also captures column names and conditions (e.g., WHERE clauses), as it's using a simple regular expression to look for table names after FROM, JOIN, and commas. Here's an approach to fix this issue and ensure only table names are captured without including aliases, columns, or conditions:
+
+Suggested Changes:
+Better table extraction logic: We need to extract tables between FROM and WHERE (or the end of the query), and between JOIN and the next clause or condition.
+Ignore aliases: If an alias is present after a table name (e.g., table1 AS t1), we should ignore the alias and only capture the table name.
+Separate out columns and conditions: We’ll stop capturing when we encounter a WHERE clause or other SQL keywords like ON, GROUP BY, or HAVING.
+Updated Table Extraction Function
+python
+Copy code
+def extract_tables_from_sql(sql_content):
+    # List to store the extracted tables
+    tables = []
+
+    # Extract the part between FROM and WHERE (or end of the query)
+    from_clause_pattern = re.compile(r'FROM\s+(.+?)(?:\s+WHERE|\s+GROUP\s+BY|\s+ORDER\s+BY|\s*$)', re.IGNORECASE | re.DOTALL)
+    join_clause_pattern = re.compile(r'JOIN\s+(.+?)(?:\s+ON|\s+WHERE|\s+GROUP\s+BY|\s+ORDER\s+BY|\s*$)', re.IGNORECASE | re.DOTALL)
+
+    # Extract FROM clause tables
+    from_match = re.search(from_clause_pattern, sql_content)
+    if from_match:
+        from_tables = from_match.group(1)
+        tables.extend(parse_table_list(from_tables))
+
+    # Extract JOIN clause tables
+    for join_match in re.finditer(join_clause_pattern, sql_content):
+        join_tables = join_match.group(1)
+        tables.extend(parse_table_list(join_tables))
+
+    return tables
+
+def parse_table_list(table_list_string):
+    """ Helper function to split tables by comma, and handle aliasing."""
+    tables = []
+    # Split by commas and clean up each table
+    for table in table_list_string.split(','):
+        # Remove extra spaces and ignore aliases (everything after the first space or tab)
+        table = table.strip()
+        if ' ' in table:
+            table = table.split()[0]  # Capture only the actual table name (ignore alias)
+        tables.append(table)
+    return tables
+# Function to extract SQL from CDATA content within XML
+def extract_sql_from_cdata(xml_string):
+    # Check for CDATA in the XML string
+    cdata_pattern = re.compile(r'<!\[CDATA\[(.*?)\]\]>', re.DOTALL)
+    matches = cdata_pattern.findall(xml_string)
+    
+    if matches:
+        # Return all CDATA content as SQL statements
+        return matches
+    else:
+        # If no CDATA, just return the text content as a fallback
+        return [xml_string]
+
+# Enhanced regex patterns from the SQL processing
+# Improved regex pattern to capture table names with optional schema names in SELECT statements with UNION
+table_pattern = r'\b(?:FROM|JOIN|,)\s+([a-zA-Z0-9_.]+)'
+insert_pattern = r'INSERT\s+INTO\s+([a-zA-Z0-9_.]+)'
+update_pattern = r'UPDATE\s+([a-zA-Z0-9_.]+)'
+delete_pattern = r'DELETE\s+FROM\s+([a-zA-Z0-9_.]+)'
+procedure_pattern = r'CREATE\s+OR\s+REPLACE\s+PROCEDURE\s+([a-zA-Z0-9_]+)\s*\('
+function_pattern = r'CREATE\s+OR\s+REPLACE\s+FUNCTION\s+([a-zA-Z0-9_]+)\s*\('
+package_pattern = r'CREATE\s+OR\s+REPLACE\s+PACKAGE\s+([a-zA-Z0-9_.]+)\s+AS'
+view_pattern = r'CREATE\s+OR\s+REPLACE\s+VIEW\s+([a-zA-Z0-9_.]+)\s+AS'
+merge_pattern = r'MERGE\s+INTO\s+([a-zA-Z0-9_.]+)'
+trigger_pattern = r'CREATE\s+OR\s+REPLACE\s+TRIGGER\s+([a-zA-Z0-9_]+).*?\s+ON\s+([a-zA-Z0-9_]+)'
+call_pattern = re.compile(r'\bcall\s+([a-zA-Z0-9_.]+)', re.IGNORECASE)
+select_key_pattern = re.compile(r'\bselect\s+.*?\s+from\s+([a-zA-Z0-9_.]+)', re.IGNORECASE)
+
+# Function to extract SQL patterns (tables, PLSQL objects) from SQL statements
+def extract_objects_from_sql(sql_content, operation_type=None):
+    objects_and_operations = []
+
+    # Extract tables from SQL queries
+    tables = extract_tables_from_sql(sql_content)
+    for table in tables:
+        objects_and_operations.append((table, 'Table', operation_type or 'select'))
+
+    # Capture INSERT, UPDATE, DELETE
+    for match in re.findall(insert_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'Table', 'insert'))
+    for match in re.findall(update_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'Table', 'update'))
+    for match in re.findall(delete_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'Table', 'delete'))
+
+    # Capture PLSQL objects (procedures, functions, etc.)
+    for match in re.findall(procedure_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'PLSQL', 'create or replace procedure'))
+    for match in re.findall(function_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'PLSQL', 'create or replace function'))
+    for match in re.findall(package_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'Package', 'create or replace package'))
+    for match in re.findall(view_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match, 'View', 'create or replace view'))
+    for match in re.findall(trigger_pattern, sql_content, re.IGNORECASE | re.DOTALL):
+        objects_and_operations.append((match[0], 'Trigger', 'create or replace trigger'))
+        objects_and_operations.append((match[1], 'Table', 'trigger'))
+
+    # Capture CALLABLE statements
+    for match in re.findall(call_pattern, sql_content):
+        objects_and_operations.append((match, 'PLSQL', 'call'))
+
+    return objects_and_operations
+
+# Function to remove <include> tags from XML
+def remove_includes(xml_content):
+    include_pattern = re.compile(r'<include.*?>.*?</include>', re.DOTALL)
+    return re.sub(include_pattern, '', xml_content)
+
+# Process the XML mapper file to extract tables and PLSQL objects using SQL pattern matching
+def process_xml_file(file_path):
+    with open(file_path, 'r', encoding='utf-8') as file:
+        xml_content = file.read()
+
+    # Remove <include> tags before processing
+    cleaned_xml_content = remove_includes(xml_content)
+
+    # Convert to bytes to handle encoding declarations
+    xml_content_bytes = cleaned_xml_content.encode('utf-8')
+    tree = etree.fromstring(xml_content_bytes)
+
+    results = []
+
+    # Process <select>, <insert>, <update>, <delete>, and <selectKey> tags
+    for query_tag in tree.xpath('//select | //insert | //update | //delete | //selectKey'):
+        sql_statements = extract_sql_from_cdata(etree.tostring(query_tag, encoding='unicode', pretty_print=True))
+        if not sql_statements:  # If no CDATA, get the tag's text content directly
+            sql_statements = [query_tag.text] if query_tag.text else []
+
+        # Special case for callable statements
+        if query_tag.attrib.get('statementType', '').upper() == 'CALLABLE':
+            operation_type = 'PLSQL'
+        else:
+            operation_type = 'Select' if query_tag.tag == 'select' else query_tag.tag
+
+        # Apply SQL pattern matching to each SQL statement found
+        for sql in sql_statements:
+            objects = extract_objects_from_sql(sql, operation_type)
+            results.extend(objects)
+
+    return results
+
+# Function to process folders and extract info from .xml files with SQL patterns included
+def process_xml_folders(csv_file, output_csv):
+    with open(csv_file, 'r', encoding='utf-8') as file:
+        folder_names = [row[0] for row in csv.reader(file)]
+
+    with open(output_csv, 'w', newline='', encoding='utf-8') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(['FolderName', 'FolderPath', 'FilePath', 'FileName', 'ObjectName', 'ObjectType', 'OperationType'])
+
+        for folder in folder_names:
+            for root, _, files in os.walk(folder):
+                for file_name in files:
+                    if file_name.endswith('.xml'):
+                        file_path = os.path.join(root, file_name)
+                        results = process_xml_file(file_path)
+                        if results:
+                            for object_name, object_type, operation_type in results:
+                                writer.writerow([folder, root, file_path, file_name, object_name, object_type, operation_type])
+
+# Replace with actual CSV paths
+csv_input = 'D:/program/test/file-db.csv'
+csv_output = 'D:/program/test/ddout-xml-rep.csv'
+
+process_xml_folders(csv_input, csv_output)
+print("XML processing completed. Data saved to", csv_output)
