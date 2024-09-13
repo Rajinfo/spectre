@@ -1,5 +1,7 @@
 To ensure that we capture only the table names and ignore the columns and where clauses, we can refine our regex pattern and logic. The goal is to extract all table names from the SQL query, considering aliases and ignoring other parts of the SQL statement.
 
+this is giving the column and where clause as well. Kindly analysis better and give me the solution, you can check after from and join take all the tables till where clause is used, table will be separated by , in comma separated part check whether is space or tab if present considered second as alias ignore alias capture table
+
 import os
 import re
 import csv
