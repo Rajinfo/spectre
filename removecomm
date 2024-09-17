@@ -1,0 +1,5 @@
+ # Regular expression to match '--' comments
+    pattern = re.compile(r'--.*?$|/\*.*?\*/', re.MULTILINE | re.DOTALL)
+    
+    # Remove comments using the pattern
+    cleaned_sql = re.sub(pattern, '', sql)
