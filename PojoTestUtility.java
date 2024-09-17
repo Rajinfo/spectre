@@ -1,12 +1,10 @@
-import java.io.File;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
-import java.net.URL;
 import java.util.*;
 
 public class PojoTestUtility {
 
-    // Method to generate dummy values based on field types
+    // Method to generate dummy values, including Arrays, Enums, and handling custom exceptions
     public static Object getDummyValue(Class<?> type) {
         try {
             if (type.equals(String.class)) {
@@ -23,6 +21,12 @@ public class PojoTestUtility {
                 return 12.34f;
             } else if (type.equals(char.class) || type.equals(Character.class)) {
                 return 'd';
+            } else if (type.isArray()) {
+                // Handle Arrays by returning a single-element array of the component type
+                Class<?> componentType = type.getComponentType();
+                Object array = java.lang.reflect.Array.newInstance(componentType, 1);
+                java.lang.reflect.Array.set(array, 0, getDummyValue(componentType));
+                return array;
             } else if (List.class.isAssignableFrom(type)) {
                 List<Object> dummyList = new ArrayList<>();
                 dummyList.add("dummyListItem");
@@ -39,6 +43,14 @@ public class PojoTestUtility {
                 Collection<Object> dummyCollection = new ArrayList<>();
                 dummyCollection.add("dummyCollectionItem");
                 return dummyCollection;
+            } else if (type.isEnum()) {
+                // For Enums, return the first enum constant
+                return type.getEnumConstants()[0];
+            } else if (Throwable.class.isAssignableFrom(type)) {
+                // Handle custom exceptions by using a constructor that takes a String (message) or Throwable (cause)
+                Constructor<?> constructor = type.getDeclaredConstructor(String.class);
+                constructor.setAccessible(true);
+                return constructor.newInstance("Custom exception message");
             } else if (type.equals(Object.class)) {
                 return new Object(); // Handle generic Object fields
             } else {
@@ -53,8 +65,12 @@ public class PojoTestUtility {
         }
     }
 
-    // Method to test the getters and setters of the POJO
-    public static void testPojo(Object obj) {
+    // Method to test the getters and setters of the POJO, with an ignore list
+    public static void testPojo(Object obj, Set<Class<?>> ignoredClasses) {
+        if (ignoredClasses.contains(obj.getClass())) {
+            return; // Skip testing if the class is in the ignore list
+        }
+
         Method[] methods = obj.getClass().getMethods();
         Map<String, Method> setters = new HashMap<>();
         Map<String, Method> getters = new HashMap<>();
@@ -88,16 +104,35 @@ public class PojoTestUtility {
         });
     }
 
-    // Method to load and test all POJOs from a package
-    public static void testAllPojosInPackage(String packageName) {
+    // Method to load and test all POJOs and custom exceptions from a package, with an ignore list
+    public static void testAllPojosInPackage(String packageName, Set<Class<?>> ignoredClasses) {
         try {
             List<Class<?>> classes = getClassesInPackage(packageName);
             for (Class<?> clazz : classes) {
-                Object instance = clazz.getDeclaredConstructor().newInstance();
-                testPojo(instance);
+                if (!ignoredClasses.contains(clazz)) {
+                    if (Throwable.class.isAssignableFrom(clazz)) {
+                        // Handle exceptions
+                        testCustomException(clazz);
+                    } else {
+                        // Test POJOs
+                        Object instance = clazz.getDeclaredConstructor().newInstance();
+                        testPojo(instance, ignoredClasses);
+                    }
+                }
             }
         } catch (Exception e) {
             e.printStackTrace();
+        }
+    }
+
+    // Test custom exceptions by creating and throwing them
+    public static void testCustomException(Class<?> exceptionClass) {
+        try {
+            Throwable exceptionInstance = (Throwable) getDummyValue(exceptionClass);
+            throw exceptionInstance; // Simulate throwing the exception
+        } catch (Throwable e) {
+            // Catch and print the exception to simulate usage
+            System.out.println("Caught exception: " + e.getMessage());
         }
     }
 
