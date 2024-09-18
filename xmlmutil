@@ -1,0 +1,17 @@
+def extract_tables(sql_query):
+    # Handle multiple tables separated by commas in the FROM clause
+    from_clause_match = re.search(r'FROM\s+(.+?)(WHERE|JOIN|ON|\(|\)|<|PIVOT|ORDER\s+BY|$)', sql_query, re.IGNORECASE)
+    if from_clause_match:
+        from_tables = from_clause_match.group(1).strip()
+
+        # Extract individual tables, handling aliases
+        tables = re.split(r',\s*', from_tables)
+
+        for table in tables:
+            if 'SELECT' in table.upper() or 'FROM' in table.upper():
+                # If the table contains a subquery, extract tables from the subquery
+                extract_tables(table)
+            else:
+                # Capture the table name without alias
+                table_name = re.split(r'\s+AS\s+|\s+', table, flags=re.IGNORECASE)[0]
+                print(f'TableName: {table_name}, Select')
