@@ -10,7 +10,7 @@ def check_db_objects(input_file, output_file, connection_string):
     df = pd.read_csv(input_file)
 
     # Prepare the output DataFrame
-    output_df = pd.DataFrame(columns=['TablesName', 'DbObject', 'IsPresent'])
+    output_df = pd.DataFrame(columns=['RepoName', 'ObjectName', 'ObjectType', 'IsAvailable'])
 
     # SQL queries to check the existence of different DB objects
     queries = {
@@ -24,18 +24,24 @@ def check_db_objects(input_file, output_file, connection_string):
 
     # Check each DB object
     for index, row in df.iterrows():
-        name = row['TablesName'].upper()
-        obj_type = row['DbObject'].lower()
+        repo_name = row['RepoName']
+        name = row['ObjectName'].upper()
+        obj_type = row['ObjectType'].lower()
         query = queries.get(obj_type)
 
         if query:
             cursor.execute(query, name=name)
             count = cursor.fetchone()[0]
-            is_present = 'Yes' if count > 0 else 'No'
+            is_available = 'Yes' if count > 0 else 'No'
         else:
-            is_present = 'Invalid Object Type'
+            is_available = 'Invalid Object Type'
 
-        output_df = output_df.append({'TablesName': row['TablesName'], 'DbObject': row['DbObject'], 'IsPresent': is_present}, ignore_index=True)
+        output_df = output_df.append({
+            'RepoName': repo_name,
+            'ObjectName': row['ObjectName'],
+            'ObjectType': row['ObjectType'],
+            'IsAvailable': is_available
+        }, ignore_index=True)
 
     # Write the output DataFrame to a CSV file
     output_df.to_csv(output_file, index=False)
