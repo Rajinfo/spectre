@@ -1,12 +1,14 @@
+import re
+
 def extract_tables(sql_query):
     # Handle multiple tables separated by commas in the FROM clause
-    from_clause_match = re.search(r'FROM\s+(.+?)(WHERE|JOIN|ON|\(|\)|<|PIVOT|ORDER\s+BY|$)', sql_query, re.IGNORECASE)
+    from_clause_match = re.search(r'FROM\s+(.+?)(WHERE|JOIN|LEFT\s+JOIN|ON|\(|\)|<|PIVOT|ORDER\s+BY|$)', sql_query, re.IGNORECASE)
     if from_clause_match:
         from_tables = from_clause_match.group(1).strip()
 
         # Extract individual tables, handling aliases
         tables = re.split(r',\s*', from_tables)
-
+        
         for table in tables:
             if 'SELECT' in table.upper() or 'FROM' in table.upper():
                 # If the table contains a subquery, extract tables from the subquery
@@ -15,3 +17,31 @@ def extract_tables(sql_query):
                 # Capture the table name without alias
                 table_name = re.split(r'\s+AS\s+|\s+', table, flags=re.IGNORECASE)[0]
                 print(f'TableName: {table_name}, Select')
+    
+    # Handle table between JOIN (or LEFT JOIN) and ON
+    join_clause_match = re.search(r'(JOIN|LEFT\s+JOIN)\s+(.+?)\s+ON', sql_query, re.IGNORECASE)
+    if join_clause_match:
+        join_table = join_clause_match.group(2).strip()
+        if 'SELECT' in join_table.upper() or 'FROM' in join_table.upper():
+            # If the table contains a subquery, extract tables from the subquery
+            extract_tables(join_table)
+        else:
+            # Capture the table name without alias
+            join_table_name = re.split(r'\s+AS\s+|\s+', join_table, flags=re.IGNORECASE)[0]
+            print(f'TableName: {join_table_name}, Select')
+
+# Example SQL queries
+sql_queries = [
+    "SELECT * FROM table1 JOIN table2 ON table1.id = table2.id;",
+    "SELECT * FROM table1 LEFT JOIN table2 ON table1.id = table2.id;",
+    "SELECT * FROM (SELECT * FROM table1) AS subquery WHERE condition = value;",
+    "SELECT * FROM table1 PIVOT (SUM(column) FOR column IN (value1, value2));",
+    "SELECT * FROM table1, table2 < table3 WHERE condition = value;",
+    "SELECT * FROM table1 (NOLOCK) WHERE condition = value;",
+    "SELECT * FROM table1, table2 ORDER BY value;",
+    "SELECT * FROM table1 AS t1, table2 t2 WHERE condition = value;",
+    "SELECT * FROM table1 t1, table2 AS t2 WHERE condition = value;"
+]
+
+for query in sql_queries:
+    extract_tables(query)
