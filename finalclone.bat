@@ -4,6 +4,7 @@ setlocal enabledelayedexpansion
 REM Input and output files
 set "input_file=D:\program\repo-git\file.csv"
 set "error_log=error_log.csv"
+set "debug_log=debug_log.csv"
 
 REM Initialize error log file
 echo URL,Branch,Error > !error_log!
@@ -31,24 +32,24 @@ for /f "tokens=1,2 delims=," %%i in ('type "%input_file%"') do (
     )
 
     REM Step 2: Switch to master branch
-    git checkout master 
+    git checkout Dvl 
     if errorlevel 1 (
         echo !repo_url!,!branch_name!,Checkout master failed >> "!error_log!"
     )
-    REM Step 3: Create a new dev branch from the master branch
-    git checkout -b dev 
+    REM Step 3: Create a new DvlClod branch from the master branch
+    git checkout -b DvlClod 
     if errorlevel 1 (
-        echo !repo_url!,!branch_name!,Create dev branch failed >> "!error_log!"
+        echo !repo_url!,!branch_name!,Create DvlClod branch failed >> "!error_log!"
     )
-    REM Step 4: Push the new dev branch to the origin
-    git push origin dev 
+    REM Step 4: Push the new DvlClod branch to the origin
+    git push origin DvlClod 
     if errorlevel 1 (
-        echo !repo_url!,!branch_name!,Push dev branch failed >> "!error_log!"
+        echo !repo_url!,!branch_name!,Push DvlClod branch failed >> "!error_log!"
     )
 
     REM Step 5: Create a new branch from the dev branch
-	echo !branch_name! Create a new branch from the dev branch
-    git checkout -b !branch_name! 2>> "!error_log!"
+	echo !branch_name! Create a new branch from the DvlClod branch
+    git checkout -b !branch_name! 2>> "!debug_log!"
     if errorlevel 1 (
         echo !repo_url!,!branch_name!,Create branch failed >> "!error_log!"
         goto :continue
