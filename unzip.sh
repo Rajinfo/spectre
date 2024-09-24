@@ -4,6 +4,8 @@
 CSV_FILE="yourfile.csv"
 SUMMARY_FILE="summaryfile"
 SUMMARY_INPUT_FILE="summaryinputfile"
+on_path="/path/to/source/"
+to_path="/path/to/destination/"
 
 # Read each line of the CSV file
 while IFS='|' read -r col1 col2 col3 col4 col5; do
@@ -36,8 +38,8 @@ while IFS='|' read -r col1 col2 col3 col4 col5; do
         YESTERDAY_CSV="test${DYNAMIC_PART}test.${YESTERDAY}.csv"
 
         # Copy today file to test${DYNAMIC_PART}test.csv and yesterday file to test${DYNAMIC_PART}test.yester.csv
-        cp "$TODAY_CSV" "test${DYNAMIC_PART}test.csv"
-        cp "$YESTERDAY_CSV" "test${DYNAMIC_PART}test.yester.csv"
+       cp "${on_path%/}/${TODAY_CSV}" "${to_path%/}/test${DYNAMIC_PART}test.csv"
+       cp "${on_path%/}/${YESTERDAY_CSV}" "${to_path%/}/test${DYNAMIC_PART}test.csv"
 
         # Find the difference between today's and yesterday's files
         diff "test${DYNAMIC_PART}test.csv" "test${DYNAMIC_PART}test.yester.csv" > "$REPORT_FILE"
