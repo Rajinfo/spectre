@@ -16,10 +16,10 @@ def extract_with_as(content):
     return matches
 
 def extract_key_value(content):
-    """Extract the word 'TEST2' between KEY and VALUE, removing hyphens."""
-    pattern = re.compile(r'KEY\s+test2\s+VALUE', re.IGNORECASE | re.DOTALL)
+    """Extract the word between KEY and VALUE, removing hyphens."""
+    pattern = re.compile(r'KEY\s+\'?(\w+?)\'?\s+VALUE', re.IGNORECASE | re.DOTALL)
     matches = pattern.findall(content)
-    return ['TEST2' for _ in matches]
+    return [match.replace('-', '') for match in matches]
 
 def main(directory, output_csv):
     extensions = ['.sql', '.xml']
