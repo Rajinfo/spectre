@@ -1,0 +1,19 @@
+#!/bin/bash
+
+# Define the source file and the destination directory
+source_file="example.txt"
+dest_dir="backup"
+
+# Create the destination directory if it doesn't exist
+mkdir -p "$dest_dir"
+
+# Generate a timestamp
+timestamp=$(date +"%Y%m%d_%H%M%S")
+
+# Define the destination file name with the timestamp
+dest_file="$dest_dir/example_$timestamp.txt"
+
+# Copy the file
+cp "$source_file" "$dest_file"
+
+echo "File copied to $dest_file"
