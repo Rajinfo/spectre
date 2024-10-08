@@ -22,10 +22,10 @@ sqlplus -s username/password@database @query.sql > output_raw.txt
 # Format the output file
 awk '
 BEGIN {
-    print "Count,record"
+    print "TOTREC,SCRIPT"
 }
 {
-    if (NR > 2 && $1 ~ /^[0-9]+$/) {
+    if ($1 ~ /^[0-9]+$/) {
         gsub(/^[ \t]+|[ \t]+$/, "", $0)  # Trim leading/trailing spaces
         print $1 "," $2
     }
