@@ -5,6 +5,9 @@ def find_db_and_crudb_folders_and_capture_files(root_folder, output_csv):
     # List to hold the file information
     file_info_list = []
 
+    # Get the base directory length to extract the root folder name
+    base_dir_length = len(root_folder.rstrip(os.sep).split(os.sep))
+
     # Walk through the directory structure
     for dirpath, dirnames, filenames in os.walk(root_folder):
         # Check if the current directory contains 'db' or 'crudb' folder
@@ -18,7 +21,7 @@ def find_db_and_crudb_folders_and_capture_files(root_folder, output_csv):
                         file_location = os.path.join(target_dirpath, filename)
                         file_name, file_extension = os.path.splitext(filename)
                         previous_folder_name = os.path.basename(os.path.dirname(file_location))
-                        root_folder_name = os.path.basename(os.path.dirname(target_dirpath))
+                        root_folder_name = target_dirpath.split(os.sep)[base_dir_length]
                         file_info_list.append([root_folder_name, file_location, file_name, file_extension, previous_folder_name])
 
     # Write the file information to a CSV file
