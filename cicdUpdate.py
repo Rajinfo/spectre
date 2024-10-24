@@ -76,14 +76,25 @@ def read_csv(file_path):
             data.append(row)
     return data
 
+def write_csv(file_path, data):
+    fieldnames = ['rootFolder', 'CICD Status']
+    with open(file_path, 'w', newline='') as file:
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in data:
+            writer.writerow(row)
+
 def main():
     folders_csv = input("Enter the path of the CSV file containing folder paths: ")
     updates_csv = input("Enter the path of the CSV file containing updates: ")
+    output_csv = input("Enter the path of the output CSV file: ")
     schemas = input("Enter the schemas value: ")
     artfVer = input("Enter the artfVer value: ")
 
     # Read folder paths
     folders = read_csv(folders_csv)
+    output_data = []
+
     for folder in folders:
         src_folder = folder['src_folder']
         dest_folder = folder['dest_folder']
@@ -104,8 +115,11 @@ def main():
 
             # Update JSON files in the copied folder
             update_json_files(cicd_folder_path, updates, schemas)
+
+            output_data.append({'rootFolder': root_folder, 'CICD Status': 'Done'})
         else:
             print(f".cicd folder already exists in {dest_folder}, skipping copy and update.")
+            output_data.append({'rootFolder': root_folder, 'CICD Status': 'AlreadyAvailable'})
 
         # Check if .gitlab-ci.yml file exists in destination
         gitlab_ci_file_path = os.path.join(dest_folder, '.gitlab-ci.yml')
@@ -114,6 +128,9 @@ def main():
             copy_file(os.path.join(src_folder, '.gitlab-ci.yml'), gitlab_ci_file_path)
         else:
             print(f".gitlab-ci.yml file already exists in {dest_folder}, skipping copy.")
+
+    # Write the output CSV file
+    write_csv(output_csv, output_data)
 
 if __name__ == "__main__":
     main()
