@@ -18,12 +18,13 @@ def find_db_and_crudb_folders_and_capture_files(root_folder, output_csv):
                         file_location = os.path.join(target_dirpath, filename)
                         file_name, file_extension = os.path.splitext(filename)
                         previous_folder_name = os.path.basename(os.path.dirname(file_location))
-                        file_info_list.append([file_location, file_name, file_extension, previous_folder_name])
+                        root_folder_name = os.path.basename(os.path.dirname(target_dirpath))
+                        file_info_list.append([root_folder_name, file_location, file_name, file_extension, previous_folder_name])
 
     # Write the file information to a CSV file
     with open(output_csv, mode='w', newline='') as csv_file:
         csv_writer = csv.writer(csv_file)
-        csv_writer.writerow(['File Location', 'File Name', 'File Extension', 'Previous Folder Name'])
+        csv_writer.writerow(['Root Folder', 'File Location', 'File Name', 'File Extension', 'Previous Folder Name'])
         csv_writer.writerows(file_info_list)
 
 # Example usage
