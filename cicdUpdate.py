@@ -10,6 +10,13 @@ def copy_folder(src, dest):
     except Exception as e:
         print(f"Error copying folder: {e}")
 
+def copy_file(src_file, dest_file):
+    try:
+        shutil.copy2(src_file, dest_file)
+        print(f"Copied {src_file} to {dest_file}")
+    except Exception as e:
+        print(f"Error copying file: {e}")
+
 def update_config_file(config_file_path, artfVer, rootProjNm):
     try:
         with open(config_file_path, 'r') as file:
@@ -82,19 +89,31 @@ def main():
         dest_folder = folder['dest_folder']
         root_folder = folder['rootfolder']
 
-        # Copy the .cicd folder
-        copy_folder(src_folder, dest_folder)
-
-        # Update config file
-        config_file_path = os.path.join(dest_folder, 'config.groovy')
-        update_config_file(config_file_path, artfVer, root_folder)
-
-        # Read updates
-        updates = read_csv(updates_csv)
-
-        # Update JSON files in the copied folder
+        # Check if .cicd folder exists in destination
         cicd_folder_path = os.path.join(dest_folder, '.cicd')
-        update_json_files(cicd_folder_path, updates, schemas)
+        if not os.path.exists(cicd_folder_path):
+            # Copy the .cicd folder
+            copy_folder(os.path.join(src_folder, '.cicd'), cicd_folder_path)
+
+            # Update config file
+            config_file_path = os.path.join(dest_folder, 'config.groovy')
+            update_config_file(config_file_path, artfVer, root_folder)
+
+            # Read updates
+            updates = read_csv(updates_csv)
+
+            # Update JSON files in the copied folder
+            update_json_files(cicd_folder_path, updates, schemas)
+        else:
+            print(f".cicd folder already exists in {dest_folder}, skipping copy and update.")
+
+        # Check if .gitlab-ci.yml file exists in destination
+        gitlab_ci_file_path = os.path.join(dest_folder, '.gitlab-ci.yml')
+        if not os.path.exists(gitlab_ci_file_path):
+            # Copy the .gitlab-ci.yml file
+            copy_file(os.path.join(src_folder, '.gitlab-ci.yml'), gitlab_ci_file_path)
+        else:
+            print(f".gitlab-ci.yml file already exists in {dest_folder}, skipping copy.")
 
 if __name__ == "__main__":
     main()
