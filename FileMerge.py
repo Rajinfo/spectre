@@ -2,6 +2,7 @@ import re
 import csv
 import shutil
 from datetime import datetime
+from difflib import unified_diff
 
 def read_sql_file(file_path):
     with open(file_path, 'r') as file:
@@ -18,7 +19,6 @@ def backup_sql_file(file_path):
     print(f"Backup created: {backup_file_path}")
 
 def normalize_sql(sql_content):
-    # Remove extra whitespace and normalize the SQL format
     sql_content = re.sub(r'\s+', ' ', sql_content)
     sql_content = re.sub(r'\s*;\s*', ';', sql_content)
     sql_content = re.sub(r'\s*\(\s*', '(', sql_content)
@@ -27,30 +27,44 @@ def normalize_sql(sql_content):
     sql_content = re.sub(r'\s*=\s*', '=', sql_content)
     return sql_content.strip()
 
-def merge_sql_files(base_sql, new_sql):
-    base_sql = normalize_sql(base_sql)
-    new_sql = normalize_sql(new_sql)
+def reformat_sql(sql_content):
+    sql_content = re.sub(r'\s*;\s*', ';\n', sql_content)
+    sql_content = re.sub(r'\s*\(\s*', ' (\n', sql_content)
+    sql_content = re.sub(r'\s*\)\s*', '\n)', sql_content)
+    sql_content = re.sub(r'\s*,\s*', ',\n', sql_content)
+    sql_content = re.sub(r'\s*=\s*', ' = ', sql_content)
+    return sql_content.strip()
 
-    base_statements = extract_statements(base_sql)
-    new_statements = extract_statements(new_sql)
+def merge_sql_files(base_sql, new_sql):
+    base_sql_normalized = normalize_sql(base_sql)
+    new_sql_normalized = normalize_sql(new_sql)
+
+    base_statements = extract_statements(base_sql_normalized)
+    new_statements = extract_statements(new_sql_normalized)
 
     base_statements_set = set(base_statements)
     new_statements_set = set(new_statements)
 
-    # Find statements that are in new_sql but not in base_sql
     added_statements = new_statements_set - base_statements_set
-    # Find statements that are in base_sql but not in new_sql
-    removed_statements = base_statements_set - new_statements_set
 
-    # Merge changes
-    merged_statements = base_statements_set.union(added_statements) - removed_statements
+    merged_statements = base_statements_set.union(added_statements)
 
-    return ';\n'.join(merged_statements) + ';'
+    merged_sql_normalized = '; '.join(merged_statements) + ';'
+    merged_sql = reformat_sql(merged_sql_normalized)
+
+    return merged_sql, added_statements
 
 def extract_statements(sql_content):
-    # This regex assumes that each statement ends with a semicolon
     statements = re.split(r';\s*', sql_content)
     return [stmt.strip() for stmt in statements if stmt.strip()]
+
+def generate_diff_report(base_sql, merged_sql, report_file_path):
+    base_lines = base_sql.splitlines()
+    merged_lines = merged_sql.splitlines()
+    diff = unified_diff(base_lines, merged_lines, fromfile='base.sql', tofile='merged.sql')
+
+    with open(report_file_path, 'w') as report_file:
+        report_file.write('\n'.join(diff))
 
 def process_csv(csv_file_path):
     with open(csv_file_path, 'r') as csvfile:
@@ -65,14 +79,17 @@ def process_csv(csv_file_path):
                 base_sql = read_sql_file(base_sql_file)
                 new_sql = read_sql_file(new_sql_file)
 
-                # Backup the base SQL file
                 backup_sql_file(base_sql_file)
 
-                merged_sql = merge_sql_files(base_sql, new_sql)
+                merged_sql, added_statements = merge_sql_files(base_sql, new_sql)
 
-                # Write the merged content back to the base SQL file
                 write_sql_file(base_sql_file, merged_sql)
+
+                report_file_path = f"{base_sql_file}_changes_report.txt"
+                generate_diff_report(base_sql, merged_sql, report_file_path)
+
                 print(f'Merged SQL changes applied to {base_sql_file}')
+                print(f'Report generated: {report_file_path}')
             except Exception as e:
                 print(f"Error processing files {base_sql_file}, {new_sql_file}: {e}")
 
