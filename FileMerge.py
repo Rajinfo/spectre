@@ -42,21 +42,28 @@ def merge_sql_files(base_sql, new_sql):
     base_statements = extract_statements(base_sql_normalized)
     new_statements = extract_statements(new_sql_normalized)
 
-    base_statements_set = set(base_statements)
-    new_statements_set = set(new_statements)
-
-    added_statements = new_statements_set - base_statements_set
-
-    merged_statements = base_statements_set.union(added_statements)
+    merged_statements = merge_statements(base_statements, new_statements)
 
     merged_sql_normalized = '; '.join(merged_statements) + ';'
     merged_sql = reformat_sql(merged_sql_normalized)
 
-    return merged_sql, added_statements
+    return merged_sql, new_statements
 
 def extract_statements(sql_content):
     statements = re.split(r';\s*', sql_content)
     return [stmt.strip() for stmt in statements if stmt.strip()]
+
+def merge_statements(base_statements, new_statements):
+    base_statements_set = set(base_statements)
+    merged_statements = []
+
+    for stmt in base_statements:
+        merged_statements.append(stmt)
+        if stmt in new_statements:
+            new_statements.remove(stmt)
+
+    merged_statements.extend(new_statements)
+    return merged_statements
 
 def generate_diff_report(base_sql, merged_sql, report_file_path):
     base_lines = base_sql.splitlines()
