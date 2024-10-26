@@ -84,6 +84,14 @@ def write_csv(file_path, data):
         for row in data:
             writer.writerow(row)
 
+def delete_folder(folder_path):
+    try:
+        if os.path.exists(folder_path) and os.path.isdir(folder_path):
+            shutil.rmtree(folder_path)
+            print(f"Deleted folder: {folder_path}")
+    except Exception as e:
+        print(f"Error deleting folder: {e}")
+
 def main():
     folders_csv = input("Enter the path of the CSV file containing folder paths: ")
     updates_csv = input("Enter the path of the CSV file containing updates: ")
@@ -99,35 +107,44 @@ def main():
         src_folder = folder['src_folder']
         dest_folder = folder['dest_folder']
         root_folder = folder['rootfolder']
+        tobeprocess = folder['tobeprocess'].lower() == 'true'
 
-        # Check if .cicd folder exists in destination
-        cicd_folder_path = os.path.join(dest_folder, '.cicd')
-        if not os.path.exists(cicd_folder_path):
-            # Copy the .cicd folder
-            copy_folder(os.path.join(src_folder, '.cicd'), cicd_folder_path)
+        if tobeprocess:
+            # Delete .jenkins folder if it exists in the destination
+            jenkins_folder_path = os.path.join(dest_folder, '.jenkins')
+            delete_folder(jenkins_folder_path)
 
-            # Update config file
-            config_file_path = os.path.join(dest_folder, 'config.groovy')
-            update_config_file(config_file_path, artfVer, root_folder)
+            # Check if .cicd folder exists in destination
+            cicd_folder_path = os.path.join(dest_folder, '.cicd')
+            if not os.path.exists(cicd_folder_path):
+                # Copy the .cicd folder
+                copy_folder(os.path.join(src_folder, '.cicd'), cicd_folder_path)
 
-            # Read updates
-            updates = read_csv(updates_csv)
+                # Update config file
+                config_file_path = os.path.join(dest_folder, 'config')
+                update_config_file(config_file_path, artfVer, root_folder)
 
-            # Update JSON files in the copied folder
-            update_json_files(cicd_folder_path, updates, schemas)
+                # Read updates
+                updates = read_csv(updates_csv)
 
-            output_data.append({'rootFolder': root_folder, 'CICD Status': 'Done'})
+                # Update JSON files in the copied folder
+                update_json_files(cicd_folder_path, updates, schemas)
+
+                output_data.append({'rootFolder': root_folder, 'CICD Status': 'Done'})
+            else:
+                print(f".cicd folder already exists in {dest_folder}, skipping copy and update.")
+                output_data.append({'rootFolder': root_folder, 'CICD Status': 'AlreadyAvailable'})
+
+            # Check if .gitlab-ci.yml file exists in destination
+            gitlab_ci_file_path = os.path.join(dest_folder, '.gitlab-ci.yml')
+            if not os.path.exists(gitlab_ci_file_path):
+                # Copy the .gitlab-ci.yml file
+                copy_file(os.path.join(src_folder, '.gitlab-ci.yml'), gitlab_ci_file_path)
+            else:
+                print(f".gitlab-ci.yml file already exists in {dest_folder}, skipping copy.")
         else:
-            print(f".cicd folder already exists in {dest_folder}, skipping copy and update.")
-            output_data.append({'rootFolder': root_folder, 'CICD Status': 'AlreadyAvailable'})
-
-        # Check if .gitlab-ci.yml file exists in destination
-        gitlab_ci_file_path = os.path.join(dest_folder, '.gitlab-ci.yml')
-        if not os.path.exists(gitlab_ci_file_path):
-            # Copy the .gitlab-ci.yml file
-            copy_file(os.path.join(src_folder, '.gitlab-ci.yml'), gitlab_ci_file_path)
-        else:
-            print(f".gitlab-ci.yml file already exists in {dest_folder}, skipping copy.")
+            print(f"Skipping folder {root_folder} as tobeprocess is false.")
+            output_data.append({'rootFolder': root_folder, 'CICD Status': 'Skipped'})
 
     # Write the output CSV file
     write_csv(output_csv, output_data)
