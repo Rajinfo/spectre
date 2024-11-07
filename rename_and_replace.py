@@ -11,10 +11,10 @@ def rename_and_replace(directory, search_word, replace_word):
 
             # Replace content inside the file
             file_path = os.path.join(root, file_name)
-            with open(file_path, 'r') as file:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as file:
                 content = file.read()
             new_content = content.replace(search_word, replace_word)
-            with open(file_path, 'w') as file:
+            with open(file_path, 'w', encoding='utf-8', errors='ignore') as file:
                 file.write(new_content)
 
 # Usage
