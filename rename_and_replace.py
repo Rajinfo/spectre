@@ -2,6 +2,10 @@ import os
 
 def rename_and_replace(directory, search_word, replace_word):
     for root, dirs, files in os.walk(directory):
+        # Skip the .git directory
+        if '.git' in root:
+            continue
+        
         for file_name in files:
             # Rename file if it contains the search word
             if search_word in file_name:
