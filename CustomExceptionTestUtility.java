@@ -17,10 +17,18 @@ public class CustomExceptionTestUtility {
 
     private List<Class<?>> findCustomExceptionClasses(String packageName) {
         List<Class<?>> exceptionClasses = new ArrayList<>();
+        // Initialize Reflections with the package to scan
+        Reflections reflections = new Reflections(packageName, new SubTypesScanner(false));
 
-        // Logic to find classes in the package (e.g., using a library like Reflections)
-        // For each class, check if it extends RuntimeException or Exception
-        // Add it to exceptionClasses list if it does
+        // Get all classes in the package
+        Set<Class<?>> allClasses = reflections.getSubTypesOf(Object.class);
+
+        // Filter classes that extend RuntimeException or Exception
+        for (Class<?> clazz : allClasses) {
+            if (RuntimeException.class.isAssignableFrom(clazz) Exception.class.isAssignableFrom(clazz)) {
+                exceptionClasses.add(clazz);
+            }
+        }
 
         return exceptionClasses;
     }
