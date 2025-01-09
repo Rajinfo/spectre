@@ -31,16 +31,20 @@ for doc in yaml_docs:
     elif doc['kind'] == 'Application':
         doc['metadata']['name'] = configurations['repo_name']
         doc['spec']['destination']['namespace'] = configurations['application_namespace']
-        doc['source']['repoURL'] = configurations['app_repo_url']
-        doc['spec']['source']['targetRevision'] = configurations['targetRevision']
-        doc['project'] = configurations['application_namespace']
-
+        doc['sources'][0]['repoURL'] = 'https://git.delta.com/crewdevops/crew-helm-templates.git'
+        doc['sources'][0]['targetRevision'] = 'v1.0.4'
+        
         # Update the helm valueFiles based on targetRevision
         target_revision = configurations['targetRevision']
         value_files_key = f"valueFiles_{target_revision}"
         if value_files_key in configurations and configurations[value_files_key]:
-            value_files = configurations[value_files_key].split(', ')
-            doc['spec']['source']['helm']['valueFiles'] = value_files
+            # Split the comma-separated string into a list
+            value_files = [vf.strip() for vf in configurations[value_files_key].split(',')]
+            doc['sources'][0]['helm']['valueFiles'] = value_files
+        
+        doc['sources'][1]['repoURL'] = configurations['app_repo_url']
+        doc['sources'][1]['targetRevision'] = configurations['targetRevision']
+        doc['project'] = configurations['application_namespace']
 
 # Determine the output file path
 relative_path = configurations['file_path']
