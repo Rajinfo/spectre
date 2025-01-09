@@ -1,0 +1,38 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: #use your application namespace here
+  namespace: developer-gitops
+spec:
+  sourceRepos:
+  - '*'
+  destinations:
+  - namespace: #use your application namespace here
+    server: 'https://kubernetes.default.svc'
+
+---
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: #this should be the name of your repo in GitLab, hypens are ok for readability
+  namespace: developer-gitops
+spec:
+  destination:
+    namespace: #use your application namespace here
+    server: 'https://kubernetes.default.svc'
+  syncPolicy:
+    automated:
+      selfHeal: true
+  sources:
+    - repoURL: 'https://git.delta.com/crewdevops/crew-helm-templates.git'
+      path: chart
+      targetRevision: v1.0.4
+      helm:
+        valueFiles:  
+        - $values/iac/oc/values.yaml
+        - $values/iac/oc/values-dev.yaml #update this based on target environment
+    - repoURL: #This needs to match your app repo (this repo)
+      targetRevision: dev-east
+      ref: values
+  project: #this needs to match the name in AppProject
