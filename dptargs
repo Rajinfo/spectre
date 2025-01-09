@@ -1,0 +1,51 @@
+import openpyxl
+import yaml
+import os
+import shutil
+from datetime import datetime
+
+# Load the Excel file
+excel_file = 'configurations.xlsx'
+wb = openpyxl.load_workbook(excel_file)
+sheet = wb['Configurations']
+
+# Read the first row as headers
+headers = [cell.value for cell in sheet[1]]
+configurations = {header: None for header in headers}
+
+# Read the configurations from the second row
+for i, cell in enumerate(sheet[2]):
+    configurations[headers[i]] = cell.value
+
+# Load the YAML template
+template_file = 'template.yml'
+with open(template_file, 'r') as file:
+    yaml_content = yaml.safe_load_all(file)
+    yaml_docs = list(yaml_content)
+
+# Update the YAML content with values from the configurations
+for doc in yaml_docs:
+    if doc['kind'] == 'AppProject':
+        doc['metadata']['name'] = configurations['application_namespace']
+        doc['spec']['destinations'][0]['namespace'] = configurations['application_namespace']
+    elif doc['kind'] == 'Application':
+        doc['metadata']['name'] = configurations['repo_name']
+        doc['spec']['destination']['namespace'] = configurations['application_namespace']
+        doc['sources'][1]['repoURL'] = configurations['app_repo_url']
+        doc['project'] = configurations['application_namespace']
+
+        # Update the helm valueFiles based on targetRevision
+        target_revision = configurations['targetRevision']
+        value_files_key = f"valueFiles_{target_revision}"
+        if value_files_key in configurations and configurations[value_files_key]:
+            value_files = configurations[value_files_key].split(', ')
+            doc['sources'][0]['helm']['valueFiles'] = value_files
+
+# Determine the output file path
+relative_path = configurations['file_path']
+output_file = os.path.join(relative_path, configurations['output_file'])
+
+# Ensure the directory exists
+os.makedirs(relative_path, exist_ok=True)
+
+#
