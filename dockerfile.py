@@ -1,51 +1,56 @@
 import openpyxl
 import os
-import shutil
-from datetime import datetime
 
 # Load the Excel file
 excel_file = 'configurations.xlsx'
 wb = openpyxl.load_workbook(excel_file)
-sheet = wb['Sheet1']
+sheet1 = wb['Sheet1']
+sheet4 = wb['Sheet4']
 
 # Load the Dockerfile template from a file
 with open('dockerfile_template', 'r') as template_file:
     dockerfile_template = template_file.read()
 
-# Get headers from the first row
-headers = [cell.value for cell in sheet[1]]
+# Get headers from the first row of Sheet1
+headers_sheet1 = [cell.value for cell in sheet1[1]]
 
-# Iterate over each row in the sheet starting from the second row
-for row in sheet.iter_rows(min_row=2, values_only=True):
-    # Create a dictionary with header names as keys and cell values as values
-    row_data = {headers[i]: cell for i, cell in enumerate(row)}
+# Get headers from the first row of Sheet4
+headers_sheet4 = [cell.value for cell in sheet4[1]]
 
-    # Replace placeholders in the Dockerfile template with actual values
-    dockerfile_content = dockerfile_template
-    for key, value in row_data.items():
-        placeholder = f"<{key}>"
-        dockerfile_content = dockerfile_content.replace(placeholder, str(value) if value is not None else "")
+# Iterate over each row in Sheet1 starting from the second row
+for row in sheet1.iter_rows(min_row=2, values_only=True):
+    # Create a dictionary with header names as keys and cell values as values for Sheet1
+    row_data_sheet1 = {headers_sheet1[i]: cell for i, cell in enumerate(row)}
 
-    # Get the file path and repo name from the current row
-    dockerfile_path = row_data.get('dockerfilepath')
-    repo_name = row_data.get('repo_name')  # Ensure this column exists in your Excel sheet
+    # Get the block_code from the current row in Sheet1
+    block_code = row_data_sheet1.get('block_code')
 
-    # Ensure the directory exists
-    if dockerfile_path:
-        # Check if the Dockerfile already exists
-        if os.path.exists(dockerfile_path):
-            # Create a timestamp
-            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-            # Define the new directory path
-            new_dir = f"c:/tmp/{repo_name}{timestamp}"
-            os.makedirs(new_dir, exist_ok=True)
-            # Move the existing Dockerfile to the new directory
-            shutil.move(dockerfile_path, os.path.join(new_dir, os.path.basename(dockerfile_path)))
-            print(f"Existing Dockerfile moved to {new_dir}")
+    # Find the matching row in Sheet4 based on block_code
+    matching_row_data_sheet4 = None
+    for row in sheet4.iter_rows(min_row=2, values_only=True):
+        row_data_sheet4 = {headers_sheet4[i]: cell for i, cell in enumerate(row)}
+        if row_data_sheet4.get('block_code') == block_code:
+            matching_row_data_sheet4 = row_data_sheet4
+            break
 
-        # Write the updated Dockerfile content to the specified path
-        os.makedirs(os.path.dirname(dockerfile_path), exist_ok=True)
-        with open(dockerfile_path, 'w') as dockerfile:
-            dockerfile.write(dockerfile_content)
+    if matching_row_data_sheet4:
+        # Replace placeholders in the Dockerfile template with actual values from Sheet1 and Sheet4
+        dockerfile_content = dockerfile_template
+        for key, value in {**row_data_sheet1, **matching_row_data_sheet4}.items():
+            placeholder = f"<{key}>"
+            dockerfile_content = dockerfile_content.replace(placeholder, str(value) if value is not None else "")
 
-        print(f"Updated Dockerfile saved at {dockerfile_path}")
+        # Get the file path from the current row in Sheet1
+        dockerfile_path = row_data_sheet1.get('dockerfilepath')
+
+        # Ensure the directory exists
+        if dockerfile_path:
+            os.makedirs(os.path.dirname(dockerfile_path), exist_ok=True)
+
+            # Write the updated Dockerfile content to the specified path
+            with open(dockerfile_path, 'w') as dockerfile:
+                dockerfile.write(dockerfile_content)
+
+            print(f"Updated Dockerfile saved at {dockerfile_path}")
+    else:
+        print(f"No matching block_code found in Sheet4 for block_code: {block_code}")
