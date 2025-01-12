@@ -1,0 +1,385 @@
+import re
+from pathlib import Path
+
+HEADER_TO_ADD = """
+- name: Authorization
+  in: header
+  description: Authorization code provided by APIGEE
+  required: true
+  schema:
+    type: string
+"""
+
+SECURITY_SCHEMES_REPLACEMENT = """
+errorResponses:
+  type: object
+  properties:
+    appVersionNum:
+      type: string
+      description: Application version
+    code:
+      type: string
+      description: Error Code
+    developerMessage:
+      type: string
+      description: Status depending on the success/failure of the call.
+    message:
+      type: string
+      description: Error message.
+    moreInfo:
+      type: array
+      description: More information
+      items:
+        $ref: '#/components/schemas/moreInfo'
+    refreshIndicator:
+      type: boolean
+      description: Refresh indicator
+      example: false
+  description: Utils API error response object
+moreInfo:
+  type: object
+  properties:
+    code:
+      type: string
+      description: Code
+    fieldName:
+      type: string
+      description: Field
+    message:
+      type: string
+      description: Message
+  description: More Info object
+securitySchemes:
+  api-gateway-authorizer:
+    type: "apiKey"
+    name: "Authorization"
+    in: "header"
+    x-amazon-apigateway-authtype: "custom"
+    x-amazon-apigateway-authorizer:
+      authorizerCredentials:
+        Fn ::Sub: "arn:aws:iam ::${AWS ::AccountId}:role/delegate-admin-${AWS ::Region}-centAuth-schgcrewlistsvcrst"
+      authorizerUri:
+        Fn ::Sub: "arn:aws:apigateway:${AWS ::Region}:lambda:path/2015-03-31/functions/{{resolve:ssm:/delta/centauth/arn}}/invocations"
+      authorizerResultTtlInSeconds: 0
+      type: "token"
+      IdentitySource: method.request.header.Authorization
+"""
+
+RESPONSES_TO_ADD = """
+'400':
+  description: Bad Request
+  content:
+    application/json:
+      schema:
+        $ref: '#/components/schemas/errorResponses'
+'401':
+  description: Unauthorized
+  content:
+    application/json:
+      schema:
+        $ref: '#/components/schemas/errorResponses'
+'403':
+  description: Forbidden
+  content:
+    application/json:
+      schema:
+        $ref: '#/components/schemas/errorResponses'
+'404':
+  description: Not Found
+  content:
+    application/json:
+      schema:
+        $ref: '#/components/schemas/errorResponses'
+'415':
+  description: Unsupported Media Type
+  content:
+    application/json:
+      schema:
+        $ref: '#/components/schemas/errorResponses'
+'500':
+  description: Internal Server Error
+  content:
+    application/json:
+      schema:
+        $ref: '#/components/schemas/errorResponses'
+'503':
+  description: Service Unavailable
+  content:
+    application/json:
+      schema:
+        $ref: '#/components/schemas/errorResponses'
+security:
+  - api-gateway-authorizer: []
+x-amazon-apigateway-integration:
+  type: "http"
+  connectionId: ${VPC_LINK}
+  httpMethod: "POST"
+  uri: ${ trngflttmhstsvcrstmonthly}
+  requestParameters:
+    integration.request.header.Content-Type: "method.request.header.Content-Type"
+    integration.request.header.TransactionId: "method.request.header.TransactionId"
+    integration.request.header.applicationOwnerCode: "method.request.header.applicationOwnerCode"
+    integration.request.header.requestedEmployeeId: "method.request.header.requestedEmployeeId"
+    integration.request.header.apiResourceName: "method.request.header.apiResourceName"
+    integration.request.header.apiRequestUtcTs: "method.request.header.apiRequestUtcTs"
+    integration.request.header.applicationName: "method.request.header.applicationName"
+    integration.request.header.applicationVersionNum: "method.request.header.applicationVersionNum"
+    integration.request.header.applicationDeviceName: "method.request.header.applicationDeviceName"
+    integration.request.header.applicationDeviceOsName: "method.request.header.applicationDeviceOsName"
+    integration.request.header.applicationDeviceMacAdr: "method.request.header.applicationDeviceMacAdr"
+    integration.request.header.networkIpAdr: "method.request.header.networkIpAdr"
+    integration.request.header.apiConsumerRecordText: "method.request.header.apiConsumerRecordText"
+    integration.request.header.Authorization: "method.request.header.Authorization"
+    integration.request.header.Accept: "method.request.header.Accept"
+    integration.request.header.employeeId: "method.request.header.employeeId"
+  responses:
+    default:
+      statusCode: '200'
+    '400':
+      statusCode: '400'
+    '401':
+      statusCode: '401'
+    '403':
+      statusCode: '403'
+    '404':
+      statusCode: '404'
+    '415':
+      statusCode: '415'
+    '500':
+      statusCode: '500'
+    '503':
+      statusCode: '503'
+  passthroughBehavior: "when_no_templates"
+  connectionType: "VPC_LINK"
+x-codegen-request-body-name: SearchRequest
+"""
+
+REPLACEMENT_LINES = """
+/actuator/health:
+  get:
+    summary: DB Health Check
+    description: DB Health Check
+    tags:
+      - health-svc
+    operationId: health
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/statusVo'
+      '400':
+        description: Bad Request
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/errorResponses'
+      '401':
+        description: Unauthorized
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/errorResponses'
+      '403':
+        description: Forbidden
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/errorResponses'
+      '404':
+        description: Not Found
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/errorResponses'
+      '429':
+        description: Too Many Requests
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/errorResponses'
+      '500':
+        description: Internal Server Error (Server Error)
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/errorResponses'
+      '502':
+        description: Bad Gateway
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/errorResponses'
+      '503':
+        description: Service Unavailable
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/errorResponses'
+      '504':
+        description: Gateway Timeout
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/errorResponses'
+    x-amazon-apigateway-integration:
+      connectionType: "VPC_LINK"
+      type: "http"
+      connectionId: ${VPC_LINK}
+      httpMethod: "GET"
+      uri: " schgcrewlisthtllngnmsvcrsthealth"
+      responses:
+        "4d{2}":
+          statusCode: "400"
+        "5d{2}":
+          statusCode: "500"
+        "2d{2}":
+          statusCode: "200"
+      passthroughBehavior: "when_no_match"
+"""
+
+ADDITIONAL_SECTION = """
+contact:
+  email: ITCrewTraning1@delta.comx-api-type:
+  - dataAccess
+x-business-capability:
+  - Crew Management (L1)
+  - Crew scheduling (L2)
+servers:
+  - url: http://crew360-dev.delta.com
+  - url: http://crew360-si.delta.com
+  - url: http://crew360.delta.com
+    description: Generated server url
+x-amazon-apigateway-gateway-responses:
+  DEFAULT_4XX:
+    statusCode: "401"
+    responseTemplates:
+      application/json:
+        "{"code": " APG4007", "message": "Unauthorized", "developerMessage": "Privacy verification failed - Access Token Expired"}"
+  EXPIRED_TOKEN:
+    statusCode: "401"
+    responseTemplates:
+      application/json:
+        "{"code": " APG4007", "message": "Unauthorized", "developerMessage": "Privacy verification failed - Access Token Expired"}"
+  ACCESS_DENIED:
+    statusCode: "401"
+    responseTemplates:
+      application/json:
+        "{"code": " APG4006", "message": "Unauthorized", "developerMessage": "Privacy verification failed - Invalid App Details"}"
+  API_CONFIGURATION_ERROR:
+    statusCode: "404"
+    responseTemplates:
+      application/json:
+        "{"code": " APG4007", "message": "The resource requested was not found", "developerMessage": "Invalid resource name or HTTP verb. Try again with correct resource name or HTTP verb."}"
+  BAD_REQUEST_PARAMETERS:
+    statusCode: "500"
+    responseTemplates:
+      application/json:
+        "{"code": " APG5004", "message": "Internal Server Error", "developerMessage": "Service Error - The server encountered an error while attempting to fulfill the request."}"
+  DEFAULT_5XX:
+    statusCode: "504"
+    responseTemplates:
+      application/json:
+        "{"code": " APG5020", "message": "Gateway Timeout", "developerMessage": "messaging.adaptors.http.flow.GatewayTimeout"}"
+  RESOURCE_NOT_FOUND:
+    statusCode: "503"
+    responseTemplates:
+      application/json:
+        "{"code": " APG5030", "message": "The Service is temporarily unavailable", "developerMessage": "messaging.adaptors.http.flow.NoActiveTargets"}"
+  INTEGRATION_FAILURE:
+    statusCode: "502"
+    responseTemplates:
+      application/json:
+        "{"code": " APG5002", "message": "Service Callout Failed", "developerMessage": "Service Error - Remote System could not be reached"}"
+  INVALID_API_KEY:
+    statusCode: "429"
+    responseTemplates:
+      application/json:
+        "{"code": " APG4008", "message": "Too Many Requests", "developerMessage": "Service Error - The client app has exceeded maximum number of permitted requests"}"
+"""
+
+def update_swagger(args):
+    file_paths = [
+        "src/main/resources/outputswagger.yaml",
+        "src/main/resources/routes_dev.json",
+        "src/main/resources/keys.txt",
+        "src/main/resources/route_si.json",
+        "src/main/resources/routes_prd.json"
+    ]
+
+    for file_path in file_paths:
+        Path(file_path).write_text('')
+
+    if len(args) != 2:
+        print("Kindly insert all the parameters: <RepoName> <tag>")
+        return
+
+    try:
+        with open("src/main/resources/inputswagger.yaml", 'r') as reader, open("src/main/resources/outputswagger.yaml", 'w') as writer:
+            in_paths_section = False
+            in_responses_section = False
+            sensitive_info_5 = False
+            in_security_section = False
+            replace_block = False
+            count = 0
+
+            for line in reader:
+                count += 1
+                if 6 <= count <= 8:
+                    continue
+                if count == 9:
+                    writer.write(ADDITIONAL_SECTION + '\n')
+
+                if line.strip().startswith("paths:"):
+                    in_paths_section = True
+
+                if in_paths_section and line.strip().endswith("parameters:"):
+                    writer.write(line + HEADER_TO_ADD)
+                    continue
+
+                if in_paths_section and line.strip().startswith("responses:"):
+                    in_responses_section = True
+
+                if in_responses_section and line.strip().startswith("'200':"):
+                    writer.write(line)
+                    while (line := reader.readline()) and not line.strip().startswith("/") and not line.strip().startswith("components:"):
+                        writer.write(line)
+                    if line:
+                        writer.write(RESPONSES_TO_ADD + '\n')
+                        if not line.endswith("health:"):
+                            writer.write(line)
+                    writer.write('\n')
+                    if not replace_block and line.endswith("health:"):
+                        replace_block = True
+                        writer.write(REPLACEMENT_LINES + '\n')
+                        while (line := reader.readline()) and not line.strip().endswith("statusVo'"):
+                            pass
+                    in_responses_section = False
+                    continue
+
+                if line.strip().startswith("security:") and not in_security_section:
+                    in_security_section = True
+                    while (line := reader.readline()) and line.strip().startswith("  - Authorization: []"):
+                        pass
+                    continue
+
+                if line.strip().startswith("securitySchemes:") and not sensitive_info_5:
+                    writer.write(SECURITY_SCHEMES_REPLACEMENT + '\n')
+                    sensitive_info_5 = True
+                    while (line := reader.readline()) and line.strip():
+                        pass
+                    continue
+
+                writer.write(line)
+
+    except IOError as e:
+        print(e)
+
+    # Call other functions like SwaggerUpdater2, RouteCreator, ParameterExtractor, SwaggerUpdater3
+    # These functions will need to be implemented in Python as well
+
+    print("Swagger file updated successfully.")
+
+# Example usage
+update_swagger(["RepoName", "tag"])
